@@ -24,6 +24,8 @@ Default login: **client code `SWIPETOUCH`**, email `admin@schoolcrm.local`, pass
 
 Backend has no hot-reload on `npm start`; `npm run dev` uses `node --watch`. Frontend has Vite HMR.
 
+**Sample data:** instead of `npm run seed`, you can load `backend/prisma/demo-data.sql` (a data-only dump of the SWIPETOUCH tenant) into a fresh DB after `db:push`: `docker exec -i school_crm_db psql -U crm -d school_crm < prisma/demo-data.sql`. Regenerate it with `pg_dump -U crm -d school_crm --data-only --column-inserts --disable-triggers`.
+
 ## Repository layout
 ```
 backend/

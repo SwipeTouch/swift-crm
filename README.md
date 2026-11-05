@@ -40,6 +40,11 @@ npm run dev                     # http://localhost:5173
 
 Log in with **client code `SWIPETOUCH`** and the seed admin credentials printed by `npm run seed`.
 
+**Want sample data?** Instead of `npm run seed`, load the bundled demo dataset (1 tenant, 6 users, 4 funnels, 9 leads with history, targets and POs) into the fresh DB:
+```bash
+docker exec -i school_crm_db psql -U crm -d school_crm < backend/prisma/demo-data.sql
+```
+
 ## Onboard a new client (tenant)
 ```bash
 cd backend
