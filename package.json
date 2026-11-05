@@ -1,0 +1,12 @@
+{
+  "name": "swift-crm",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "heroku-postbuild": "npm --prefix backend ci --include=dev && npm --prefix frontend ci --include=dev && npm --prefix frontend run build",
+    "start": "npm --prefix backend start"
+  }
+}

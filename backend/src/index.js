@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
 
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
@@ -28,6 +30,13 @@ app.use('/api/users', userRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/targets', targetRoutes);
+
+// In production, serve the built frontend from the same origin.
+const webDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
+if (fs.existsSync(webDist)) {
+  app.use(express.static(webDist));
+  app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(webDist, 'index.html')));
+}
 
 // Fallback error handler (e.g. multer file-size errors).
 app.use((err, req, res, next) => {
