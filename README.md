@@ -47,3 +47,13 @@ npm run create-tenant -- --code ACME --name "Acme Schools" \
   --admin-email admin@acme.com --admin-password "Secret@123"
 ```
 That tenant then logs in with client code `ACME` and its own admin — and sees only its own data.
+
+## Project structure
+```
+backend/    Express + Prisma API (routes, lib, prisma schema/seed/migrations-manual, scripts)
+frontend/   React + Vite + Ant Design SPA (pages, components, auth/config/theme providers)
+docker-compose.yml   PostgreSQL 16 for local dev (host port 5433)
+```
+
+## Working on this project (AI agents & contributors)
+Read **[CLAUDE.md](./CLAUDE.md)** first — it is the full engineering context: architecture, data model, how to run and migrate the DB, the **multi-tenancy rules** every query must follow, auth/RBAC, and conventions. `AGENTS.md` points other AI tools to the same guide.
