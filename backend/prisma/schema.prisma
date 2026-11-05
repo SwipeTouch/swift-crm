@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  MANAGER
+  SALES_REP
+}
+
+enum ContactType {
+  INFLUENCER
+  PROMOTER
+}
+
+// A client/organisation. Row-level multi-tenancy: every tenant-owned record
+// carries a tenantId and all queries are scoped to the caller's tenant.
+model Tenant {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique // client code typed at login (stored UPPERCASE)
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users          User[]
+  funnels        Funnel[]
+  leads          Lead[]
+  stageHistory   LeadStageHistory[]
+  imports        ImportBatch[]
+  config         AppConfig?
+  targets        Target[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  name         String
+  email        String
+  passwordHash String
+  role         Role     @default(SALES_REP)
+  region       String?
+  active       Boolean  @default(true)
+  locked       Boolean  @default(false) // per-user view-only lock
+  canExport    Boolean  @default(true)  // per-user export/print permission
+  createdAt    DateTime @default(now())
+
+  ownedLeads     Lead[]             @relation("OwnerLeads")
+  funnels        Funnel[]
+  funnelAccess   Funnel[]           @relation("FunnelAccess")
+  stageChanges   LeadStageHistory[]
+  imports        ImportBatch[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Funnel {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  createdById Int?
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+
+  leads         Lead[]
+  assignedUsers User[] @relation("FunnelAccess")
+
+  @@index([tenantId])
+}
+
+model Lead {
+  id              Int          @id @default(autoincrement())
+  tenantId        Int
+  tenant          Tenant       @relation(fields: [tenantId], references: [id])
+  schoolName      String
+  board           String?
+  studentStrength Int?
+  region          String?
+  location        String?
+  contactName     String?
+  contactType     ContactType?
+  contactPhone    String?
+  stage           String       @default("cold")
+  closedAt        DateTime?    // set when the lead enters the Closure stage (for FY achievement)
+  source          String?
+  totalContractValue Float?
+  pspmRate        Float?
+  cac             Float?
+  leadDate        DateTime     @default(now())
+  reminderAt      DateTime?
+  reminderNote    String?
+  funnelId        Int?
+  funnel          Funnel?      @relation(fields: [funnelId], references: [id])
+  ownerId         Int?
+  owner           User?        @relation("OwnerLeads", fields: [ownerId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  history       LeadStageHistory[]
+  purchaseOrder PurchaseOrder?
+
+  @@index([tenantId])
+  @@index([region])
+  @@index([stage])
+  @@index([funnelId])
+  @@index([ownerId])
+}
+
+model LeadStageHistory {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  leadId      Int
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage   String?
+  toStage     String
+  note        String?
+  changedById Int?
+  changedBy   User?    @relation(fields: [changedById], references: [id])
+  changedAt   DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+model ImportBatch {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  filename     String
+  rowCount     Int
+  uploadedById Int?
+  uploadedBy   User?    @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// Per-tenant configuration (one row per tenant).
+model AppConfig {
+  id            Int      @id @default(autoincrement())
+  tenantId      Int      @unique
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  stages        Json     // [{ id, name, color }] in display/pipeline order
+  repColumns    Json     // leads-pool column keys a Sales Rep may see
+  exportEnabled Boolean  @default(true)
+  readOnly      Boolean  @default(false) // global view-only (all but Super Admin)
+  repsReadOnly  Boolean  @default(false) // Sales Reps view-only
+  ageingThresholdDays Int @default(20)   // leads aged >= this are highlighted
+  poTemplate    Json?    // Purchase Order template overrides (company, bank, annexures, ...)
+  logo          String?  // company logo as a base64 data URL
+  updatedAt     DateTime @updatedAt
+}
+
+// Sales targets per financial year, by dimension.
+model Target {
+  id        Int      @id @default(autoincrement())
+  tenantId  Int
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  fy        String   // e.g. "2026-27"
+  dimension String   // OVERALL | REGION | FUNNEL | USER
+  refKey    String   // "" for OVERALL; region name / funnelId / userId as string otherwise
+  amount    Float
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, fy, dimension, refKey])
+  @@index([tenantId])
+}
+
+model PurchaseOrder {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  leadId         Int      @unique
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  poNumber       String
+  dealDate       DateTime
+  contractExpiry DateTime?
+  valueType      String   // PSPM | LUMPSUM
+  perStudentRate Float?
+  studentStrength Int?
+  monthlyAmount  Float?   // lump-sum monthly input
+  baseAmount     Float    // computed monthly base
+  gstPercent     Float    @default(18)
+  gstAmount      Float    // monthly GST
+  grandTotal     Float    // monthly base + GST
+  billingCycle   String   @default("MONTHLY") // MONTHLY | QUARTERLY
+  schoolName     String
+  addresseeTitle String?  // Principal | Director | Promoter | Chairman
+  board          String?
+  contacts       Json     // [{ name, email, phone }]
+  createdById    Int?
+  createdBy      User?    @relation(fields: [createdById], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId])
+}
