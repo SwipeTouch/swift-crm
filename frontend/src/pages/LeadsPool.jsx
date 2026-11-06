@@ -52,6 +52,8 @@ export default function LeadsPool() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [sortKey, setSortKey] = useState();
+  const [sortOrder, setSortOrder] = useState();
 
   const [funnels, setFunnels] = useState([]);
   const [funnelStats, setFunnelStats] = useState([]);
@@ -92,6 +94,10 @@ export default function LeadsPool() {
   const fetchLeads = useCallback(() => {
     setLoading(true);
     const params = { page, pageSize };
+    if (sortKey && sortOrder) {
+      params.sort = sortKey;
+      params.order = sortOrder;
+    }
     Object.entries(filters).forEach(([k, v]) => {
       if (v === false) return;
       if (v !== undefined && v !== '' && v !== null) params[k] = v;
@@ -104,7 +110,7 @@ export default function LeadsPool() {
       })
       .catch((e) => message.error(e.response?.data?.error || 'Could not load leads'))
       .finally(() => setLoading(false));
-  }, [page, pageSize, filters, message]);
+  }, [page, pageSize, filters, sortKey, sortOrder, message]);
 
   const refreshStats = useCallback(() => {
     api.get('/leads/stats').then((r) => setFunnelStats(r.data.funnels)).catch(() => {});
@@ -167,6 +173,10 @@ export default function LeadsPool() {
   const exportXlsx = async () => {
     try {
       const params = {};
+      if (sortKey && sortOrder) {
+        params.sort = sortKey;
+        params.order = sortOrder;
+      }
       Object.entries(filters).forEach(([k, v]) => {
         if (v === false) return;
         if (v !== undefined && v !== '' && v !== null) params[k] = v;
@@ -227,21 +237,41 @@ export default function LeadsPool() {
     );
   };
 
+  const sortable = (key) => ({
+    sorter: true,
+    sortOrder: sortKey === key ? sortOrder : null,
+  });
+
+  const onTableChange = (pagination, _filters, sorter) => {
+    const active = Array.isArray(sorter) ? sorter[0] : sorter;
+    const nextKey = active && active.order ? active.columnKey : undefined;
+    const nextOrder = active && active.order ? active.order : undefined;
+    const sortChanged = nextKey !== sortKey || nextOrder !== sortOrder;
+    setSortKey(nextKey);
+    setSortOrder(nextOrder);
+    setPageSize(pagination.pageSize);
+    setPage(sortChanged ? 1 : pagination.current);
+  };
+
   const columns = [
     {
-      title: 'School', dataIndex: 'schoolName', key: 'schoolName',
+      title: '#', key: 'seq', width: 64, align: 'right', fixed: 'left',
+      render: (_v, _r, index) => (page - 1) * pageSize + index + 1,
+    },
+    {
+      title: 'School', dataIndex: 'schoolName', key: 'schoolName', ...sortable('schoolName'),
       render: (t, r) => (
         <Button type="link" style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }} onClick={() => setDetailId(r.id)}>
           {t}
         </Button>
       ),
     },
-    { title: 'Board', dataIndex: 'board', key: 'board', render: (v) => v || '—' },
-    { title: 'Students', dataIndex: 'studentStrength', key: 'studentStrength', render: (v) => v ?? '—' },
-    { title: 'TCV', dataIndex: 'totalContractValue', key: 'totalContractValue', align: 'right', render: (v) => inr(v) },
-    { title: 'CAC', dataIndex: 'cac', key: 'cac', align: 'right', render: (v) => inr(v) },
+    { title: 'Board', dataIndex: 'board', key: 'board', ...sortable('board'), render: (v) => v || '—' },
+    { title: 'Students', dataIndex: 'studentStrength', key: 'studentStrength', ...sortable('studentStrength'), render: (v) => v ?? '—' },
+    { title: 'TCV', dataIndex: 'totalContractValue', key: 'totalContractValue', align: 'right', ...sortable('totalContractValue'), render: (v) => inr(v) },
+    { title: 'CAC', dataIndex: 'cac', key: 'cac', align: 'right', ...sortable('cac'), render: (v) => inr(v) },
     {
-      title: 'Ageing', key: 'ageing', align: 'right',
+      title: 'Ageing', key: 'ageing', align: 'right', ...sortable('ageing'),
       render: (_, r) => {
         const d = ageingDays(r.leadDate);
         if (d === null) return '—';
@@ -252,7 +282,7 @@ export default function LeadsPool() {
       },
     },
     {
-      title: 'Reminder', key: 'reminder',
+      title: 'Reminder', key: 'reminder', ...sortable('reminder'),
       render: (_, r) =>
         r.reminderAt ? (
           <Tag icon={<BellOutlined />} color={isReminderDue(r.reminderAt) ? 'red' : 'default'}>
@@ -260,15 +290,15 @@ export default function LeadsPool() {
           </Tag>
         ) : '—',
     },
-    { title: 'Region', dataIndex: 'region', key: 'region', render: (v) => v || '—' },
+    { title: 'Region', dataIndex: 'region', key: 'region', ...sortable('region'), render: (v) => v || '—' },
     {
-      title: 'Contact', key: 'contact',
+      title: 'Contact', key: 'contact', ...sortable('contact'),
       render: (_, r) => r.contactName ? `${r.contactName}${r.contactType ? ` (${CONTACT_LABEL[r.contactType]})` : ''}` : '—',
     },
-    { title: 'Funnel', key: 'funnel', render: (_, r) => r.funnel?.name || '—' },
-    { title: 'Owner', key: 'owner', render: (_, r) => r.owner?.name || 'Unassigned' },
+    { title: 'Funnel', key: 'funnel', ...sortable('funnel'), render: (_, r) => r.funnel?.name || '—' },
+    { title: 'Owner', key: 'owner', ...sortable('owner'), render: (_, r) => r.owner?.name || 'Unassigned' },
     {
-      title: 'Stage', dataIndex: 'stage', key: 'stage',
+      title: 'Stage', dataIndex: 'stage', key: 'stage', ...sortable('stage'),
       render: (s) => <Tag color={stageColor(s)}>{stageName(s)}</Tag>,
     },
     {
@@ -307,7 +337,7 @@ export default function LeadsPool() {
   const allowedKeys = allowedToggleable.map((c) => c.key);
   const effectiveVisible = isRep ? visibleCols.filter((k) => allowedKeys.includes(k)) : visibleCols;
   const shownColumns = columns.filter(
-    (c) => c.key === 'schoolName' || c.key === 'actions' || effectiveVisible.includes(c.key)
+    (c) => c.key === 'seq' || c.key === 'schoolName' || c.key === 'actions' || effectiveVisible.includes(c.key)
   );
 
   const columnsPanel = (
@@ -485,10 +515,11 @@ export default function LeadsPool() {
         columns={shownColumns}
         dataSource={data}
         scroll={{ x: 'max-content' }}
+        showSorterTooltip={{ title: 'Sort' }}
+        onChange={onTableChange}
         pagination={{
           current: page, pageSize, total, showSizeChanger: true,
           showTotal: (t) => `${t} leads`,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); },
         }}
       />
 

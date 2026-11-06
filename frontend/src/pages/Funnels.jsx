@@ -3,6 +3,7 @@ import { Card, Table, Button, Modal, Form, Input, Space, Row, Typography, Popcon
 import { PlusOutlined } from '@ant-design/icons';
 import api from '../api';
 import { useAuth, isAdmin, canManageData } from '../auth';
+import { compareNumber, compareText, sequenceColumn } from '../tableSort';
 
 const { Title } = Typography;
 
@@ -54,9 +55,10 @@ export default function Funnels() {
   };
 
   const columns = [
-    { title: 'Funnel', dataIndex: 'name', key: 'name' },
-    { title: 'Description', dataIndex: 'description', key: 'description', render: (v) => v || '—' },
-    { title: 'Leads', dataIndex: 'leadCount', key: 'leadCount', render: (v) => <Tag>{v}</Tag> },
+    sequenceColumn,
+    { title: 'Funnel', dataIndex: 'name', key: 'name', sorter: (a, b) => compareText(a.name, b.name) },
+    { title: 'Description', dataIndex: 'description', key: 'description', sorter: (a, b) => compareText(a.description, b.description), render: (v) => v || '—' },
+    { title: 'Leads', dataIndex: 'leadCount', key: 'leadCount', sorter: (a, b) => compareNumber(a.leadCount, b.leadCount), render: (v) => <Tag>{v}</Tag> },
     canManageData(user) && {
       title: 'Actions', key: 'actions', width: 180,
       render: (_, r) => (
@@ -81,7 +83,7 @@ export default function Funnels() {
         )}
       </Row>
       <Card size="small">
-        <Table rowKey="id" loading={loading} columns={columns} dataSource={data} pagination={false} />
+        <Table rowKey="id" loading={loading} columns={columns} dataSource={data} pagination={false} showSorterTooltip={{ title: 'Sort' }} scroll={{ x: 'max-content' }} />
       </Card>
 
       <Modal open={open} title={editing ? 'Edit funnel' : 'New funnel'} onOk={save} onCancel={() => setOpen(false)} destroyOnHidden>

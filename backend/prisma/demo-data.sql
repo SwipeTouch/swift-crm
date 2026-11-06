@@ -246,10 +246,10 @@ SELECT pg_catalog.setval('public."User_id_seq"', 7, true);
 
 
 --
--- Name: appconfig_id_seq; Type: SEQUENCE SET; Schema: public; Owner: crm
+-- Name: AppConfig_id_seq; Type: SEQUENCE SET; Schema: public; Owner: crm
 --
 
-SELECT pg_catalog.setval('public.appconfig_id_seq', 2, true);
+SELECT pg_catalog.setval('public."AppConfig_id_seq"', 2, true);
 
 
 --

@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const XLSX = require('xlsx');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
@@ -70,6 +71,26 @@ const leadInclude = {
   funnel: { select: { id: true, name: true } },
   owner: { select: { id: true, name: true, email: true } },
 };
+
+const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const MAX_LEAD_IMAGES = 8;
+const imageMetaSelect = {
+  id: true,
+  filename: true,
+  mimeType: true,
+  createdAt: true,
+  author: { select: { id: true, name: true } },
+};
+
+function sniffImage(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+  if (buf.toString('ascii', 4, 8) === 'ftyp' && /heic|heix|hevc|mif1/i.test(buf.toString('ascii', 8, 12))) return 'heic';
+  return null;
+}
 
 // Normalize and validate a lead payload (shared by create/update).
 function sanitizeLeadInput(body) {
@@ -217,6 +238,34 @@ function buildLeadWhere(req) {
   return where;
 }
 
+// Header sort for the leads grid. Unknown keys fall back to recently updated.
+const LEAD_SORTS = {
+  schoolName: (dir) => ({ schoolName: dir }),
+  board: (dir) => ({ board: dir }),
+  studentStrength: (dir) => ({ studentStrength: dir }),
+  totalContractValue: (dir) => ({ totalContractValue: dir }),
+  cac: (dir) => ({ cac: dir }),
+  // Fewer ageing days means a later lead date.
+  ageing: (dir) => ({ leadDate: dir === 'asc' ? 'desc' : 'asc' }),
+  reminder: (dir) => ({ reminderAt: dir }),
+  region: (dir) => ({ region: dir }),
+  contact: (dir) => ({ contactName: dir }),
+  funnel: (dir) => ({ funnel: { name: dir } }),
+  owner: (dir) => ({ owner: { name: dir } }),
+  stage: (dir) => ({ stage: dir }),
+};
+
+function leadOrderBy(query) {
+  const key = String((query && query.sort) || '');
+  const dir = query && (query.order === 'ascend' || query.order === 'asc')
+    ? 'asc'
+    : query && (query.order === 'descend' || query.order === 'desc')
+      ? 'desc'
+      : null;
+  if (!dir || !LEAD_SORTS[key]) return [{ updatedAt: 'desc' }, { id: 'desc' }];
+  return [LEAD_SORTS[key](dir), { id: 'asc' }];
+}
+
 // GET /api/leads  — leads pool with filters + pagination
 router.get('/', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -228,7 +277,7 @@ router.get('/', async (req, res) => {
     prisma.lead.findMany({
       where,
       include: leadInclude,
-      orderBy: { updatedAt: 'desc' },
+      orderBy: leadOrderBy(req.query),
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -261,9 +310,10 @@ router.get('/export', async (req, res) => {
     return res.status(403).json({ error: 'Your account is not allowed to export or print.' });
   }
   const where = buildLeadWhere(req);
-  const leads = await prisma.lead.findMany({ where, include: leadInclude, orderBy: { updatedAt: 'desc' } });
+  const leads = await prisma.lead.findMany({ where, include: leadInclude, orderBy: leadOrderBy(req.query) });
   const CONTACT_LABEL = { INFLUENCER: 'Influencer', PROMOTER: 'School Promoter' };
-  const rows = leads.map((l) => ({
+  const rows = leads.map((l, i) => ({
+    '#': i + 1,
     'School': l.schoolName,
     'Board': l.board || '',
     'Students': l.studentStrength ?? '',
@@ -334,11 +384,103 @@ router.get('/:id', async (req, res) => {
         orderBy: { changedAt: 'desc' },
         include: { changedBy: { select: { id: true, name: true } } },
       },
+      notes: {
+        orderBy: { createdAt: 'asc' },
+        include: { author: { select: { id: true, name: true } } },
+      },
+      images: {
+        orderBy: { createdAt: 'desc' },
+        select: imageMetaSelect,
+      },
     },
   });
   if (!lead) return res.status(404).json({ error: 'Not found' });
   if (!canViewLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
   res.json({ lead });
+});
+
+// POST /api/leads/:id/notes — append a remark. { body }
+router.post('/:id/notes', enforceWritable, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const body = String((req.body && req.body.body) || '').trim();
+  if (!body) return res.status(400).json({ error: 'Write a note before saving' });
+  if (body.length > 4000) return res.status(400).json({ error: 'Note is too long (max 4000 characters)' });
+
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId: req.tenantId } });
+  if (!lead) return res.status(404).json({ error: 'Not found' });
+  if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
+
+  const note = await prisma.leadNote.create({
+    data: { tenantId: req.tenantId, leadId: id, body, authorId: req.user.id },
+    include: { author: { select: { id: true, name: true } } },
+  });
+  res.status(201).json({ note });
+});
+
+// POST /api/leads/:id/images — attach one photo. multipart field "file".
+router.post('/:id/images', enforceWritable, imageUpload.single('file'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!req.file) return res.status(400).json({ error: 'Choose an image to attach' });
+  const mimeType = sniffImage(req.file.buffer);
+  if (mimeType === 'heic') {
+    return res.status(400).json({ error: 'This photo is HEIC. Save it as a JPEG, or set the camera to Most Compatible.' });
+  }
+  if (!mimeType) return res.status(400).json({ error: 'Attach a JPEG, PNG, WEBP, or GIF image' });
+
+  const lead = await prisma.lead.findFirst({ where: { id, tenantId: req.tenantId } });
+  if (!lead) return res.status(404).json({ error: 'Not found' });
+  if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
+
+  const count = await prisma.leadImage.count({ where: { leadId: id, tenantId: req.tenantId } });
+  if (count >= MAX_LEAD_IMAGES) {
+    return res.status(400).json({ error: `A lead can have up to ${MAX_LEAD_IMAGES} images` });
+  }
+
+  const filename = String(req.file.originalname || 'photo').split(/[/\\]/).pop().slice(0, 120) || 'photo';
+  const image = await prisma.leadImage.create({
+    data: {
+      tenantId: req.tenantId,
+      leadId: id,
+      filename,
+      mimeType,
+      data: req.file.buffer,
+      authorId: req.user.id,
+    },
+    select: imageMetaSelect,
+  });
+  res.status(201).json({ image });
+});
+
+// GET /api/leads/:id/images/:imageId — the image bytes, for someone who can see the lead.
+router.get('/:id/images/:imageId', async (req, res) => {
+  const leadId = parseInt(req.params.id, 10);
+  const imageId = parseInt(req.params.imageId, 10);
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, tenantId: req.tenantId } });
+  if (!lead) return res.status(404).json({ error: 'Not found' });
+  if (!canViewLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
+
+  const image = await prisma.leadImage.findFirst({
+    where: { id: imageId, leadId, tenantId: req.tenantId },
+  });
+  if (!image) return res.status(404).json({ error: 'Not found' });
+  res.set('Content-Type', image.mimeType);
+  res.set('Cache-Control', 'private, max-age=300');
+  res.send(Buffer.from(image.data));
+});
+
+// DELETE /api/leads/:id/images/:imageId
+router.delete('/:id/images/:imageId', enforceWritable, async (req, res) => {
+  const leadId = parseInt(req.params.id, 10);
+  const imageId = parseInt(req.params.imageId, 10);
+  const lead = await prisma.lead.findFirst({ where: { id: leadId, tenantId: req.tenantId } });
+  if (!lead) return res.status(404).json({ error: 'Not found' });
+  if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
+
+  const removed = await prisma.leadImage.deleteMany({
+    where: { id: imageId, leadId, tenantId: req.tenantId },
+  });
+  if (!removed.count) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 });
 
 // POST /api/leads — create a lead manually (1:1)

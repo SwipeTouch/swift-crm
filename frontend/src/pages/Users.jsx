@@ -3,6 +3,7 @@ import { Card, Table, Button, Modal, Form, Input, Select, Space, Row, Tag, Switc
 import { PlusOutlined } from '@ant-design/icons';
 import api from '../api';
 import { useAuth } from '../auth';
+import { compareText, sequenceColumn } from '../tableSort';
 
 const { Title } = Typography;
 const ROLE_OPTIONS = [
@@ -72,20 +73,26 @@ export default function Users() {
   };
 
   const columns = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'Role', dataIndex: 'role', key: 'role', render: (r) => <Tag color={ROLE_COLOR[r]}>{ROLE_LABEL[r]}</Tag> },
-    { title: 'Region', dataIndex: 'region', key: 'region', render: (v) => v || '—' },
+    sequenceColumn,
+    { title: 'Name', dataIndex: 'name', key: 'name', sorter: (a, b) => compareText(a.name, b.name) },
+    { title: 'Email', dataIndex: 'email', key: 'email', sorter: (a, b) => compareText(a.email, b.email) },
+    { title: 'Role', dataIndex: 'role', key: 'role', sorter: (a, b) => compareText(ROLE_LABEL[a.role], ROLE_LABEL[b.role]), render: (r) => <Tag color={ROLE_COLOR[r]}>{ROLE_LABEL[r]}</Tag> },
+    { title: 'Region', dataIndex: 'region', key: 'region', sorter: (a, b) => compareText(a.region, b.region), render: (v) => v || '—' },
     {
       title: 'Funnel access', key: 'funnelAccess',
+      sorter: (a, b) => compareText(
+        (a.funnelAccess || []).map((f) => f.name).join(', '),
+        (b.funnelAccess || []).map((f) => f.name).join(', '),
+      ),
       render: (_, r) =>
         r.funnelAccess && r.funnelAccess.length
           ? r.funnelAccess.map((f) => <Tag key={f.id} color="purple">{f.name}</Tag>)
           : <span style={{ color: '#aaa' }}>—</span>,
     },
-    { title: 'Status', dataIndex: 'active', key: 'active', render: (a) => a ? <Tag color="green">Active</Tag> : <Tag>Disabled</Tag> },
+    { title: 'Status', dataIndex: 'active', key: 'active', sorter: (a, b) => Number(b.active) - Number(a.active), render: (a) => a ? <Tag color="green">Active</Tag> : <Tag>Disabled</Tag> },
     {
       title: 'Access', key: 'access',
+      sorter: (a, b) => Number(!!a.locked) - Number(!!b.locked) || Number(a.canExport === false) - Number(b.canExport === false),
       render: (_, r) => (
         <Space size={4} wrap>
           {r.locked ? <Tag color="red">View-only</Tag> : <Tag color="green">Can edit</Tag>}
@@ -109,7 +116,7 @@ export default function Users() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal(null)}>New user</Button>
       </Row>
       <Card size="small">
-        <Table rowKey="id" loading={loading} columns={columns} dataSource={data} pagination={false} />
+        <Table rowKey="id" loading={loading} columns={columns} dataSource={data} pagination={false} showSorterTooltip={{ title: 'Sort' }} scroll={{ x: 'max-content' }} />
       </Card>
 
       <Modal open={open} title={editing ? 'Edit user' : 'New user'} onOk={save} onCancel={() => setOpen(false)} destroyOnHidden>

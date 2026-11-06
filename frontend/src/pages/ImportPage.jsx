@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Upload, Button, Select, Typography, Space, Alert, Table, Divider, App } from 'antd';
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons';
 import api from '../api';
+import { compareNumber, compareText, sequenceColumn } from '../tableSort';
 
 const { Title, Paragraph, Text } = Typography;
 const { Dragger } = Upload;
@@ -18,17 +19,17 @@ export default function ImportPage() {
     api.get('/funnels').then((r) => setFunnels(r.data.data)).catch(() => {});
   }, []);
 
-  const downloadTemplate = async () => {
+  const downloadFile = async (path, filename) => {
     try {
-      const r = await api.get('/import/template', { responseType: 'blob' });
+      const r = await api.get(path, { responseType: 'blob' });
       const url = URL.createObjectURL(r.data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'leads-import-template.xlsx';
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      message.error('Could not download template');
+      message.error('Could not download file');
     }
   };
 
@@ -63,10 +64,11 @@ export default function ImportPage() {
           <Text code>Contact Type</Text>, <Text code>Contact Phone</Text>, <Text code>Stage</Text>,{' '}
           <Text code>Source</Text>, <Text code>Total Contract Value</Text>, <Text code>PSPM Rate</Text>,{' '}
           <Text code>Lead Date</Text>, <Text code>Reminder</Text>. Only <Text strong>School Name</Text> is
-          required for import.
+          required for import. Download the sample file for a filled sheet you can import as-is.
         </Paragraph>
         <Space style={{ marginBottom: 16 }} wrap>
-          <Button icon={<DownloadOutlined />} onClick={downloadTemplate}>Download template</Button>
+          <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/template', 'leads-import-template.xlsx')}>Download template</Button>
+          <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/sample', 'leads-import-sample.xlsx')}>Download sample</Button>
           <Select
             allowClear style={{ minWidth: 240 }} placeholder="Assign all rows to a funnel (optional)"
             value={funnelId} onChange={setFunnelId}
@@ -105,9 +107,11 @@ export default function ImportPage() {
               <Table
                 size="small" rowKey={(r) => r.row} pagination={false}
                 columns={[
-                  { title: 'Row', dataIndex: 'row', width: 80 },
-                  { title: 'Reason', dataIndex: 'error' },
+                  sequenceColumn,
+                  { title: 'Row', dataIndex: 'row', width: 80, sorter: (a, b) => compareNumber(a.row, b.row) },
+                  { title: 'Reason', dataIndex: 'error', sorter: (a, b) => compareText(a.error, b.error) },
                 ]}
+                showSorterTooltip={{ title: 'Sort' }}
                 dataSource={result.errors}
               />
             </>

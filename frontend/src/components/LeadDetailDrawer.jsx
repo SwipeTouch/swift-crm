@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography } from 'antd';
+import { useEffect, useRef, useState } from 'react';
+import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography, Collapse, Image, Popconfirm, theme } from 'antd';
 import dayjs from 'dayjs';
 import api from '../api';
 import { inr, ageingDays, isReminderDue } from '../format';
@@ -13,6 +13,7 @@ const CONTACT_LABEL = { INFLUENCER: 'Influencer', PROMOTER: 'School Promoter' };
 // move the lead to another stage (recorded with a note).
 export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, closureStage, onOpenPo }) {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const { user } = useAuth();
   const { stageName, stageColor, orderedIds, stageIndex, nextStageId, readOnly, repsReadOnly, ageingThresholdDays } = useConfig();
   const isRep = user?.role === 'SALES_REP';
@@ -23,6 +24,13 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
   const [loading, setLoading] = useState(false);
   const [toStage, setToStage] = useState(null);
   const [note, setNote] = useState('');
+  const [remark, setRemark] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const [imageUrls, setImageUrls] = useState({});
+  const imageUrlsRef = useRef([]);
+  const fileRef = useRef(null);
 
   const load = () => {
     if (!leadId) return;
@@ -43,6 +51,42 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, leadId]);
 
+  const imageKey = (lead?.images || []).map((img) => img.id).join(',');
+  useEffect(() => {
+    if (!photosOpen || !lead?.id) return undefined;
+    let cancelled = false;
+    const created = [];
+    (async () => {
+      const next = {};
+      for (const img of lead.images || []) {
+        try {
+          const r = await api.get(`/leads/${lead.id}/images/${img.id}`, { responseType: 'blob' });
+          const url = URL.createObjectURL(r.data);
+          created.push(url);
+          next[img.id] = url;
+        } catch {
+          /* leave a blank tile if this one fails */
+        }
+      }
+      if (cancelled) {
+        created.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      imageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      imageUrlsRef.current = created;
+      setImageUrls(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // imageKey tracks the attachment list without refetching on unrelated lead edits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photosOpen, lead?.id, imageKey]);
+
+  useEffect(() => () => {
+    imageUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+  }, []);
+
   const changeStage = async () => {
     if (!toStage) return message.warning('Pick a stage to move to');
     try {
@@ -55,6 +99,63 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
       message.error(e.response?.data?.error || 'Stage change failed');
     }
   };
+
+  const attachImage = async (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file || !lead) return;
+    setUploadingImage(true);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const r = await api.post(`/leads/${lead.id}/images`, body);
+      setLead((prev) => (prev ? { ...prev, images: [r.data.image, ...(prev.images || [])] } : prev));
+      setPhotosOpen(true);
+      message.success('Image attached');
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Could not attach the image');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeImage = async (imageId) => {
+    try {
+      await api.delete(`/leads/${lead.id}/images/${imageId}`);
+      setLead((prev) => (prev ? { ...prev, images: (prev.images || []).filter((img) => img.id !== imageId) } : prev));
+      message.success('Image removed');
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Could not remove the image');
+    }
+  };
+
+  const addNote = async () => {
+    const body = remark.trim();
+    if (!body) return message.warning('Write a note before saving');
+    setSavingNote(true);
+    try {
+      const r = await api.post(`/leads/${lead.id}/notes`, { body });
+      setLead((prev) => (prev ? { ...prev, notes: [...(prev.notes || []), r.data.note] } : prev));
+      setRemark('');
+      message.success('Note added');
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Could not save the note');
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const notesByDay = [];
+  for (const n of lead?.notes || []) {
+    const key = dayjs(n.createdAt).format('YYYY-MM-DD');
+    const last = notesByDay[notesByDay.length - 1];
+    if (!last || last.key !== key) {
+      notesByDay.push({ key, label: dayjs(n.createdAt).format('DD MMM YYYY'), items: [n] });
+    } else {
+      last.items.push(n);
+    }
+  }
+  notesByDay.reverse();
 
   const promote = async () => {
     const to = nextStageId(lead.stage);
@@ -114,6 +215,113 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
             <Descriptions.Item label="Owner">{lead.owner?.name || 'Unassigned'}</Descriptions.Item>
             <Descriptions.Item label="Source">{lead.source || '—'}</Descriptions.Item>
           </Descriptions>
+
+          <Collapse
+            style={{ marginTop: 16 }}
+            onChange={(keys) => {
+              const list = Array.isArray(keys) ? keys : [keys];
+              setPhotosOpen(list.includes('photos'));
+            }}
+            items={[{
+              key: 'notes',
+              label: `Notes & remarks${lead.notes?.length ? ` (${lead.notes.length})` : ''}`,
+              children: (
+                <div>
+                  {notesByDay.length === 0 && (
+                    <Text type="secondary">Nothing logged yet.</Text>
+                  )}
+                  {notesByDay.map((day) => (
+                    <div key={day.key} style={{ marginBottom: 14 }}>
+                      <Text strong>{day.label}</Text>
+                      {day.items.map((n) => (
+                        <div
+                          key={n.id}
+                          style={{
+                            marginTop: 8,
+                            paddingLeft: 10,
+                            borderLeft: `2px solid ${token.colorBorderSecondary}`,
+                          }}
+                        >
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {dayjs(n.createdAt).format('h:mm A')} · {n.author?.name || 'Someone'}
+                          </Text>
+                          <div style={{ whiteSpace: 'pre-wrap' }}>{n.body}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  {canWrite && (
+                    <Space direction="vertical" style={{ width: '100%', marginTop: notesByDay.length ? 4 : 12 }}>
+                      <Input.TextArea
+                        rows={3}
+                        value={remark}
+                        maxLength={4000}
+                        placeholder="What happened today? A call, a visit, what they asked for."
+                        onChange={(e) => setRemark(e.target.value)}
+                      />
+                      <Button type="primary" size="small" loading={savingNote} onClick={addNote}>
+                        Add note
+                      </Button>
+                    </Space>
+                  )}
+                </div>
+              ),
+            }, {
+              key: 'photos',
+              label: `Photos${lead.images?.length ? ` (${lead.images.length})` : ''}`,
+              children: (
+                <div>
+                  {(lead.images || []).length === 0 && (
+                    <Text type="secondary">No photos yet.</Text>
+                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {(lead.images || []).map((img) => (
+                      <div key={img.id} style={{ width: 104 }}>
+                        {imageUrls[img.id] ? (
+                          <Image
+                            src={imageUrls[img.id]}
+                            alt={img.filename || 'Lead photo'}
+                            width={104}
+                            height={104}
+                            style={{ objectFit: 'cover', borderRadius: 6 }}
+                          />
+                        ) : (
+                          <div style={{ width: 104, height: 104, borderRadius: 6, background: token.colorFillTertiary }} />
+                        )}
+                        <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 4 }}>
+                          {dayjs(img.createdAt).format('DD MMM')} · {img.author?.name || 'Someone'}
+                        </Text>
+                        {canWrite && (
+                          <Popconfirm title="Remove this photo?" onConfirm={() => removeImage(img.id)} okText="Remove" okButtonProps={{ danger: true }}>
+                            <Button type="link" size="small" danger style={{ padding: 0, height: 'auto' }}>Remove</Button>
+                          </Popconfirm>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {canWrite && (
+                    <div style={{ marginTop: (lead.images || []).length ? 12 : 8 }}>
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        onChange={attachImage}
+                      />
+                      <Button size="small" loading={uploadingImage} onClick={() => fileRef.current && fileRef.current.click()}>
+                        Attach image
+                      </Button>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          JPEG, PNG, WEBP, or GIF, up to 8 MB. Up to 8 photos.
+                        </Text>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ),
+            }]}
+          />
 
           {lead.stage === closureStage && onOpenPo && (
             <Button type="primary" block style={{ marginTop: 16 }} onClick={() => onOpenPo(lead)}>
