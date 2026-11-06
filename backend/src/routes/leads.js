@@ -253,6 +253,8 @@ const LEAD_SORTS = {
   funnel: (dir) => ({ funnel: { name: dir } }),
   owner: (dir) => ({ owner: { name: dir } }),
   stage: (dir) => ({ stage: dir }),
+  notes: (dir) => ({ notes: { _count: dir } }),
+  images: (dir) => ({ images: { _count: dir } }),
 };
 
 function leadOrderBy(query) {
@@ -276,7 +278,7 @@ router.get('/', async (req, res) => {
     prisma.lead.count({ where }),
     prisma.lead.findMany({
       where,
-      include: leadInclude,
+      include: { ...leadInclude, _count: { select: { notes: true, images: true } } },
       orderBy: leadOrderBy(req.query),
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -310,11 +312,17 @@ router.get('/export', async (req, res) => {
     return res.status(403).json({ error: 'Your account is not allowed to export or print.' });
   }
   const where = buildLeadWhere(req);
-  const leads = await prisma.lead.findMany({ where, include: leadInclude, orderBy: leadOrderBy(req.query) });
+  const leads = await prisma.lead.findMany({
+    where,
+    include: { ...leadInclude, _count: { select: { notes: true, images: true } } },
+    orderBy: leadOrderBy(req.query),
+  });
   const CONTACT_LABEL = { INFLUENCER: 'Influencer', PROMOTER: 'School Promoter' };
   const rows = leads.map((l, i) => ({
     '#': i + 1,
     'School': l.schoolName,
+    'Notes': l._count ? l._count.notes : 0,
+    'Photos': l._count ? l._count.images : 0,
     'Board': l.board || '',
     'Students': l.studentStrength ?? '',
     'Stage': stageName(req, l.stage),

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography, Collapse, Image, Popconfirm, theme } from 'antd';
+import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography, Collapse, Image, Popconfirm, Grid, theme } from 'antd';
 import dayjs from 'dayjs';
 import api from '../api';
 import { inr, ageingDays, isReminderDue } from '../format';
@@ -11,9 +11,11 @@ const CONTACT_LABEL = { INFLUENCER: 'Influencer', PROMOTER: 'School Promoter' };
 
 // Shows full lead detail plus the stage-change history, and lets the user
 // move the lead to another stage (recorded with a note).
-export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, closureStage, onOpenPo }) {
+export default function LeadDetailDrawer({ leadId, open, openSection, onClose, onChanged, closureStage, onOpenPo }) {
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const phone = screens.md === false;
   const { user } = useAuth();
   const { stageName, stageColor, orderedIds, stageIndex, nextStageId, readOnly, repsReadOnly, ageingThresholdDays } = useConfig();
   const isRep = user?.role === 'SALES_REP';
@@ -28,6 +30,7 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
   const [savingNote, setSavingNote] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [photosOpen, setPhotosOpen] = useState(false);
+  const [openKeys, setOpenKeys] = useState([]);
   const [imageUrls, setImageUrls] = useState({});
   const imageUrlsRef = useRef([]);
   const fileRef = useRef(null);
@@ -50,6 +53,13 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
     if (open && leadId) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, leadId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const start = openSection ? [openSection] : [];
+    setOpenKeys(start);
+    setPhotosOpen(start.includes('photos'));
+  }, [open, leadId, openSection]);
 
   const imageKey = (lead?.images || []).map((img) => img.id).join(',');
   useEffect(() => {
@@ -112,6 +122,7 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
       setLead((prev) => (prev ? { ...prev, images: [r.data.image, ...(prev.images || [])] } : prev));
       setPhotosOpen(true);
       message.success('Image attached');
+      onChanged && onChanged();
     } catch (e) {
       message.error(e.response?.data?.error || 'Could not attach the image');
     } finally {
@@ -124,6 +135,7 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
       await api.delete(`/leads/${lead.id}/images/${imageId}`);
       setLead((prev) => (prev ? { ...prev, images: (prev.images || []).filter((img) => img.id !== imageId) } : prev));
       message.success('Image removed');
+      onChanged && onChanged();
     } catch (e) {
       message.error(e.response?.data?.error || 'Could not remove the image');
     }
@@ -138,6 +150,7 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
       setLead((prev) => (prev ? { ...prev, notes: [...(prev.notes || []), r.data.note] } : prev));
       setRemark('');
       message.success('Note added');
+      onChanged && onChanged();
     } catch (e) {
       message.error(e.response?.data?.error || 'Could not save the note');
     } finally {
@@ -171,7 +184,7 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
   };
 
   return (
-    <Drawer open={open} onClose={onClose} width={520} loading={loading} title={lead ? lead.schoolName : 'Lead'}>
+    <Drawer open={open} onClose={onClose} width={phone ? '100%' : 520} loading={loading} title={lead ? lead.schoolName : 'Lead'}>
       {lead && (
         <>
           <Descriptions column={1} size="small" bordered>
@@ -218,8 +231,10 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
 
           <Collapse
             style={{ marginTop: 16 }}
+            activeKey={openKeys}
             onChange={(keys) => {
               const list = Array.isArray(keys) ? keys : [keys];
+              setOpenKeys(list);
               setPhotosOpen(list.includes('photos'));
             }}
             items={[{
@@ -333,26 +348,26 @@ export default function LeadDetailDrawer({ leadId, open, onClose, onChanged, clo
             <>
               <Divider>Move stage</Divider>
               <Space direction="vertical" style={{ width: '100%' }}>
-                <Space.Compact style={{ width: '100%' }}>
-                  <Select
-                    style={{ width: 160 }}
-                    placeholder="Move to…"
-                    value={toStage}
-                    onChange={setToStage}
-                    options={orderedIds
-                      .filter((id) => {
-                        if (id === lead.stage) return false;
-                        // Reps can only move forward; admins/managers can also send back.
-                        if (canManageData(user)) return true;
-                        return stageIndex(id) > stageIndex(lead.stage);
-                      })
-                      .map((id) => ({ value: id, label: stageName(id) }))}
-                  />
-                  <Button type="default" onClick={changeStage}>Move</Button>
-                  <Button type="primary" onClick={promote} disabled={!nextStageId(lead.stage)}>
+                <Select
+                  style={{ width: phone ? '100%' : undefined, minWidth: phone ? undefined : 160 }}
+                  placeholder="Move to…"
+                  value={toStage}
+                  onChange={setToStage}
+                  options={orderedIds
+                    .filter((id) => {
+                      if (id === lead.stage) return false;
+                      // Reps can only move forward; admins/managers can also send back.
+                      if (canManageData(user)) return true;
+                      return stageIndex(id) > stageIndex(lead.stage);
+                    })
+                    .map((id) => ({ value: id, label: stageName(id) }))}
+                />
+                <Space direction={phone ? 'vertical' : 'horizontal'} style={{ width: '100%' }}>
+                  <Button block={phone} type="default" onClick={changeStage}>Move</Button>
+                  <Button block={phone} type="primary" onClick={promote} disabled={!nextStageId(lead.stage)}>
                     Promote to next
                   </Button>
-                </Space.Compact>
+                </Space>
                 <Input.TextArea
                   rows={2}
                   placeholder="Optional note for this stage change"

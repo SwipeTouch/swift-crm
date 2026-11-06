@@ -111,7 +111,7 @@ export default function Users() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+      <Row justify="space-between" align="middle" gutter={[8, 12]} style={{ marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>Users</Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal(null)}>New user</Button>
       </Row>

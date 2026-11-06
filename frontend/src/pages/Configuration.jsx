@@ -112,7 +112,7 @@ export default function Configuration() {
           Define your pipeline stages, their order (left→right = early→late), and the colour each is highlighted with.
           A stage still used by leads can't be removed until those leads are moved.
         </Paragraph>
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space direction="vertical" style={{ width: '100%', overflowX: 'auto' }}>
           {stages.map((s, i) => (
             <Row key={i} gutter={8} align="middle" wrap={false}>
               <Col flex="24px"><Text type="secondary">{i + 1}</Text></Col>

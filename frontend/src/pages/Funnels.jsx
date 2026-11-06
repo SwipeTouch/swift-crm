@@ -76,7 +76,7 @@ export default function Funnels() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+      <Row justify="space-between" align="middle" gutter={[8, 12]} style={{ marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>Funnels</Title>
         {canManageData(user) && (
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal(null)}>New funnel</Button>

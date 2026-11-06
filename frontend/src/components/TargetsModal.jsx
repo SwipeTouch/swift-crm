@@ -73,7 +73,7 @@ export default function TargetsModal({ fy, open, onClose, onSaved }) {
   );
 
   return (
-    <Modal open={open} title={`Set Sales Targets — FY ${fy}`} onOk={save} confirmLoading={saving} okText="Save targets" onCancel={onClose} width={620}>
+    <Modal open={open} title={`Set Sales Targets — FY ${fy}`} onOk={save} confirmLoading={saving} okText="Save targets" onCancel={onClose} width={620} style={{ maxWidth: 'calc(100vw - 16px)' }}>
       <div style={{ maxHeight: '60vh', overflowY: 'auto', paddingRight: 8 }}>
         <Divider orientation="left" style={{ marginTop: 0 }}>Overall FY target</Divider>
         <InputNumber {...rupee} value={amt[k('OVERALL', '')]} onChange={(v) => set('OVERALL', '', v)} placeholder="Overall target for the year" />

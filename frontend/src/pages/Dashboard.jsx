@@ -83,7 +83,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+      <Row justify="space-between" align="middle" gutter={[8, 12]} style={{ marginBottom: 16 }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>Welcome, {user?.name}</Title>
           <Text type="secondary">
@@ -94,10 +94,10 @@ export default function Dashboard() {
       </Row>
 
       <Row gutter={[16, 16]}>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Total leads" value={agg.total} prefix={<SolutionOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Pipeline value (TCV)" value={inr(agg.tcv)} prefix={<DollarOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Closed (won)" value={closed} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col xs={12} md={6}><Card size="small"><Statistic title="Reminders due" value={remindersDue} prefix={<BellOutlined />} valueStyle={{ color: remindersDue ? '#cf1322' : undefined }} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card size="small"><Statistic title="Total leads" value={agg.total} prefix={<SolutionOutlined />} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card size="small"><Statistic title="Pipeline value (TCV)" value={inr(agg.tcv)} prefix={<DollarOutlined />} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card size="small"><Statistic title="Closed (won)" value={closed} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col xs={24} sm={12} md={6}><Card size="small"><Statistic title="Reminders due" value={remindersDue} prefix={<BellOutlined />} valueStyle={{ color: remindersDue ? '#cf1322' : undefined }} /></Card></Col>
       </Row>
 
       {isAdmin && analysis && (
@@ -117,7 +117,7 @@ export default function Dashboard() {
               <Text strong>Overall FY {fy}</Text>
               <div><Text type="secondary">{inr(analysis.overall.achieved)} achieved{analysis.overall.target ? ` of ${inr(analysis.overall.target)} target` : ' · no target set'}</Text></div>
             </Col>
-            <Col flex="260px">
+            <Col xs={24} md={{ flex: '260px' }}>
               <Progress
                 percent={pct(analysis.overall.achieved, analysis.overall.target)}
                 status={analysis.overall.target && analysis.overall.achieved >= analysis.overall.target ? 'success' : 'active'}

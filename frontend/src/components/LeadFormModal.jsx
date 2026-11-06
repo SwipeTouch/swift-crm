@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Modal, Form, Input, InputNumber, Select, AutoComplete, DatePicker, App } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, AutoComplete, DatePicker, Grid, App } from 'antd';
 import dayjs from 'dayjs';
 import api from '../api';
 import { canManageData, useAuth } from '../auth';
@@ -24,6 +24,10 @@ export default function LeadFormModal({ open, onClose, onSaved, lead, funnels, u
   const { user } = useAuth();
   const { message } = App.useApp();
   const { orderedIds, stageName } = useConfig();
+  const screens = Grid.useBreakpoint();
+  const phone = screens.md === false;
+  const row = { display: 'flex', gap: 12, flexDirection: phone ? 'column' : 'row' };
+  const field = { flex: phone ? 'none' : 1, width: phone ? '100%' : undefined };
   const isEdit = !!lead;
   const stageOptions = orderedIds.map((id) => ({ value: id, label: stageName(id) }));
 
@@ -97,76 +101,78 @@ export default function LeadFormModal({ open, onClose, onSaved, lead, funnels, u
       onOk={submit}
       onCancel={onClose}
       okText={isEdit ? 'Save' : 'Create'}
-      width={680}
+      width={phone ? 'calc(100vw - 16px)' : 680}
+      style={{ top: phone ? 12 : undefined, maxWidth: 'calc(100vw - 16px)' }}
+      styles={phone ? { body: { maxHeight: '70vh', overflow: 'auto' } } : undefined}
       destroyOnHidden
     >
       <Form form={form} layout="vertical">
         <Form.Item name="schoolName" label="School name" rules={[{ required: true, message: 'School name is required' }]}>
           <Input placeholder="e.g. Delhi Public School" />
         </Form.Item>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="board" label="School board" style={{ flex: 1 }}>
+        <div style={row}>
+          <Form.Item name="board" label="School board" style={field}>
             <AutoComplete options={BOARD_OPTIONS} placeholder="CBSE / ICSE / ..." allowClear filterOption />
           </Form.Item>
-          <Form.Item name="studentStrength" label="Student strength" style={{ flex: 1 }} rules={[{ required: true, message: 'Required' }]}>
+          <Form.Item name="studentStrength" label="Student strength" style={field} rules={[{ required: true, message: 'Required' }]}>
             <InputNumber min={0} style={{ width: '100%' }} placeholder="e.g. 1200" />
           </Form.Item>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="region" label="Region" style={{ flex: 1 }}>
+        <div style={row}>
+          <Form.Item name="region" label="Region" style={field}>
             <Input placeholder="e.g. North" />
           </Form.Item>
-          <Form.Item name="location" label="Location / City" style={{ flex: 1 }}>
+          <Form.Item name="location" label="Location / City" style={field}>
             <Input placeholder="e.g. New Delhi" />
           </Form.Item>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="contactName" label="Contact name" style={{ flex: 1 }} rules={[{ required: true, message: 'Required' }]}>
+        <div style={row}>
+          <Form.Item name="contactName" label="Contact name" style={field} rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Person at the school" />
           </Form.Item>
-          <Form.Item name="contactType" label="Contact type" style={{ flex: 1 }}>
+          <Form.Item name="contactType" label="Contact type" style={field}>
             <Select options={CONTACT_TYPE_OPTIONS} allowClear placeholder="Influencer / Promoter" />
           </Form.Item>
-          <Form.Item name="contactPhone" label="Contact phone" style={{ flex: 1 }}>
+          <Form.Item name="contactPhone" label="Contact phone" style={field}>
             <Input placeholder="Phone number" />
           </Form.Item>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="totalContractValue" label="Total Contract Value" style={{ flex: 1 }} rules={[{ required: true, message: 'Required' }]}>
+        <div style={row}>
+          <Form.Item name="totalContractValue" label="Total Contract Value" style={field} rules={[{ required: true, message: 'Required' }]}>
             <InputNumber {...rupee} style={{ width: '100%' }} placeholder="e.g. 500000" />
           </Form.Item>
-          <Form.Item name="pspmRate" label="PSPM Rate" style={{ flex: 1 }} tooltip="Per Student Per Month rate (₹)">
+          <Form.Item name="pspmRate" label="PSPM Rate" style={field} tooltip="Per Student Per Month rate (₹)">
             <InputNumber {...rupee} style={{ width: '100%' }} placeholder="e.g. 250" />
           </Form.Item>
-          <Form.Item name="cac" label="CAC" style={{ flex: 1 }} tooltip="Cost of Customer Acquisition (₹). Entered manually for now; a future Zoho Expense hook can fill this automatically.">
+          <Form.Item name="cac" label="CAC" style={field} tooltip="Cost of Customer Acquisition (₹). Entered manually for now; a future Zoho Expense hook can fill this automatically.">
             <InputNumber {...rupee} style={{ width: '100%' }} placeholder="e.g. 15000" />
           </Form.Item>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="leadDate" label="Lead date" style={{ flex: 1 }} tooltip="Used to compute lead ageing">
+        <div style={row}>
+          <Form.Item name="leadDate" label="Lead date" style={field} tooltip="Used to compute lead ageing">
             <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
           </Form.Item>
-          <Form.Item name="reminderAt" label="Reminder date" style={{ flex: 1 }} tooltip="Lead is flagged in the pool when this date arrives">
+          <Form.Item name="reminderAt" label="Reminder date" style={field} tooltip="Lead is flagged in the pool when this date arrives">
             <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
           </Form.Item>
         </div>
         <Form.Item name="reminderNote" label="Reminder note">
           <Input placeholder="What to follow up on" />
         </Form.Item>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="funnelId" label="Funnel" style={{ flex: 1 }} rules={[{ required: true, message: 'Required' }]}>
+        <div style={row}>
+          <Form.Item name="funnelId" label="Funnel" style={field} rules={[{ required: true, message: 'Required' }]}>
             <Select
               placeholder="Assign to a funnel"
               options={funnelOptions.map((f) => ({ value: f.id, label: f.name }))}
             />
           </Form.Item>
           {!isEdit && (
-            <Form.Item name="stage" label="Initial stage" style={{ flex: 1 }}>
+            <Form.Item name="stage" label="Initial stage" style={field}>
               <Select options={stageOptions} />
             </Form.Item>
           )}
           {canManageData(user) && (
-            <Form.Item name="ownerId" label="Owner (sales rep)" style={{ flex: 1 }}>
+            <Form.Item name="ownerId" label="Owner (sales rep)" style={field}>
               <Select
                 allowClear
                 showSearch

@@ -1,4 +1,4 @@
-import { Layout, Menu, Dropdown, Avatar, Tag, Typography, Segmented, theme } from 'antd';
+import { Layout, Menu, Dropdown, Avatar, Tag, Typography, Segmented, Grid, theme } from 'antd';
 import {
   UserOutlined, FunnelPlotOutlined, TeamOutlined, ImportOutlined, DownOutlined,
   SolutionOutlined, SettingOutlined, DashboardOutlined, SunOutlined, MoonOutlined, DesktopOutlined,
@@ -19,6 +19,8 @@ export default function AppLayout() {
   const location = useLocation();
   const { mode, setMode, isDark } = useThemeMode();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const compact = screens.lg === false;
 
   const items = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
@@ -45,7 +47,12 @@ export default function AppLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth="0" theme={isDark ? 'dark' : 'light'}>
+      <Sider
+        breakpoint="lg"
+        collapsedWidth="0"
+        theme={isDark ? 'dark' : 'light'}
+        zeroWidthTriggerStyle={{ top: 8, width: 40, height: 40 }}
+      >
         <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 20, letterSpacing: '-0.02em', fontFamily: "'Plus Jakarta Sans', 'Inter', sans-serif", color: '#ea3b5d' }}>
             Swift<span style={{ color: isDark ? '#7aa2ff' : '#004ecc' }}>-CRM</span>
@@ -65,9 +72,20 @@ export default function AppLayout() {
         </div>
       </Sider>
       <Layout>
-        <Header style={{ background: token.colorBgContainer, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingInline: 24, borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
-          <Text strong style={{ fontSize: 15 }}>{tenant?.name || ''}</Text>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <Header style={{
+          background: token.colorBgContainer,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+          height: compact ? 56 : 64,
+          lineHeight: 'normal',
+          paddingInlineStart: compact ? 52 : 24,
+          paddingInlineEnd: compact ? 12 : 24,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        }}>
+          <Text strong ellipsis style={{ fontSize: compact ? 14 : 15, flex: 1, minWidth: 0 }}>{tenant?.name || ''}</Text>
+          <div style={{ display: 'flex', alignItems: 'center', gap: compact ? 8 : 16, flexShrink: 0 }}>
             <Segmented
               size="small"
               value={mode}
@@ -80,19 +98,21 @@ export default function AppLayout() {
             />
             <Dropdown menu={userMenu}>
               <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Avatar icon={<UserOutlined />} />
-                <span>
-                  <Text strong>{user?.name}</Text>{' '}
-                  <Tag color={ROLE_COLOR[user?.role]} style={{ marginInlineStart: 4 }}>
-                    {ROLE_LABEL[user?.role]}
-                  </Tag>
-                </span>
+                <Avatar size={compact ? 'small' : 'default'} icon={<UserOutlined />} />
+                {!compact && (
+                  <span>
+                    <Text strong>{user?.name}</Text>{' '}
+                    <Tag color={ROLE_COLOR[user?.role]} style={{ marginInlineStart: 4 }}>
+                      {ROLE_LABEL[user?.role]}
+                    </Tag>
+                  </span>
+                )}
                 <DownOutlined style={{ fontSize: 10 }} />
               </div>
             </Dropdown>
           </div>
         </Header>
-        <Content style={{ margin: 24 }}>
+        <Content style={{ margin: compact ? 12 : 24 }}>
           <Outlet />
         </Content>
       </Layout>

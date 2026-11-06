@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Modal, Form, Input, InputNumber, Select, DatePicker, Radio, Button, Space, Divider, Alert, Typography, App,
+  Modal, Form, Input, InputNumber, Select, DatePicker, Radio, Button, Space, Divider, Alert, Typography, Grid, App,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -16,6 +16,10 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
   const { message } = App.useApp();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const phone = screens.md === false;
+  const row = { display: 'flex', gap: 12, flexDirection: phone ? 'column' : 'row' };
+  const field = { flex: phone ? 'none' : 1, width: phone ? '100%' : undefined };
 
   const valueType = Form.useWatch('valueType', form);
   const perStudentRate = Form.useWatch('perStudentRate', form);
@@ -91,7 +95,9 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
       open={open}
       title="Purchase Order"
       onCancel={onClose}
-      width={720}
+      width={phone ? 'calc(100vw - 16px)' : 720}
+      style={{ top: phone ? 12 : undefined, maxWidth: 'calc(100vw - 16px)' }}
+      styles={phone ? { body: { maxHeight: '70vh', overflow: 'auto' } } : undefined}
       destroyOnHidden
       footer={[
         <Button key="pdf" icon={<FilePdfOutlined />} disabled={!saved} onClick={() => download('pdf')}>Download PDF</Button>,
@@ -101,41 +107,41 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
       ].filter(Boolean)}
     >
       <Form form={form} layout="vertical" disabled={!canWrite}>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="schoolName" label="School name" style={{ flex: 2 }} rules={[{ required: true }]}>
+        <div style={row}>
+          <Form.Item name="schoolName" label="School name" style={phone ? field : { flex: 2 }} rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="addresseeTitle" label="Addressee (salutation)" style={{ flex: 1 }}>
+          <Form.Item name="addresseeTitle" label="Addressee (salutation)" style={field}>
             <Select options={ADDRESSEE_OPTIONS} />
           </Form.Item>
-          <Form.Item name="board" label="Board" style={{ flex: 1 }}>
+          <Form.Item name="board" label="Board" style={field}>
             <Input placeholder="CBSE / ICSE..." />
           </Form.Item>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="dealDate" label="Deal date" style={{ flex: 1 }} rules={[{ required: true }]}>
+        <div style={row}>
+          <Form.Item name="dealDate" label="Deal date" style={field} rules={[{ required: true }]}>
             <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
           </Form.Item>
-          <Form.Item name="contractExpiry" label="Contract expiry" style={{ flex: 1 }}>
+          <Form.Item name="contractExpiry" label="Contract expiry" style={field}>
             <DatePicker style={{ width: '100%' }} format="DD MMM YYYY" />
           </Form.Item>
-          <Form.Item name="billingCycle" label="Billing" style={{ flex: 1 }}>
+          <Form.Item name="billingCycle" label="Billing" style={field}>
             <Select options={[{ value: 'MONTHLY', label: 'Monthly' }, { value: 'QUARTERLY', label: 'Quarterly' }]} />
           </Form.Item>
         </div>
 
         <Form.Item name="valueType" label="Deal value">
-          <Radio.Group>
+          <Radio.Group style={{ display: 'flex', flexWrap: 'wrap' }}>
             <Radio.Button value="PSPM">Per Student / Month</Radio.Button>
             <Radio.Button value="LUMPSUM">Lump Sum</Radio.Button>
           </Radio.Group>
         </Form.Item>
         {valueType === 'PSPM' ? (
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="perStudentRate" label="Per student rate (₹/month)" style={{ flex: 1 }} rules={[{ required: true }]}>
+          <div style={row}>
+            <Form.Item name="perStudentRate" label="Per student rate (₹/month)" style={field} rules={[{ required: true }]}>
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="studentStrength" label="Total student strength" style={{ flex: 1 }} rules={[{ required: true }]}>
+            <Form.Item name="studentStrength" label="Total student strength" style={field} rules={[{ required: true }]}>
               <InputNumber min={0} style={{ width: '100%' }} />
             </Form.Item>
           </div>
@@ -156,7 +162,7 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
           {(fields, { add, remove }) => (
             <>
               {fields.map(({ key, name, ...rest }) => (
-                <Space key={key} align="baseline" style={{ display: 'flex', marginBottom: 8 }}>
+                <Space key={key} align="baseline" direction={phone ? 'vertical' : 'horizontal'} style={{ display: 'flex', marginBottom: 8, width: '100%' }}>
                   <Form.Item {...rest} name={[name, 'name']} rules={[{ required: true, message: 'Name required' }]}>
                     <Input placeholder="Name *" />
                   </Form.Item>

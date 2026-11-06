@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Card, Table, Button, Input, Select, Space, Tag, Row, Col, InputNumber, Popconfirm, Checkbox, Tooltip, Dropdown, Alert, Segmented, DatePicker, App, Typography, theme,
+  Card, Table, Button, Input, Select, Space, Tag, Row, Col, InputNumber, Popconfirm, Checkbox, Tooltip, Dropdown, Alert, Segmented, DatePicker, App, Typography, Pagination, Grid, theme,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, ArrowRightOutlined, ArrowLeftOutlined, BellOutlined, SettingOutlined, DownloadOutlined, PrinterOutlined, MoreOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, ArrowRightOutlined, ArrowLeftOutlined, BellOutlined, SettingOutlined, DownloadOutlined, PrinterOutlined, MoreOutlined, LeftOutlined, RightOutlined, CommentOutlined, PaperClipOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api';
 import { useAuth, canManageData } from '../auth';
@@ -40,6 +40,8 @@ export default function LeadsPool() {
   const { user } = useAuth();
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const screens = Grid.useBreakpoint();
+  const phone = screens.md === false;
   const { stageName, stageColor, orderedIds, nextStageId, prevStageId, exportEnabled, readOnly, repsReadOnly, repColumns, ageingThresholdDays } = useConfig();
 
   const isRep = user?.role === 'SALES_REP';
@@ -69,6 +71,7 @@ export default function LeadsPool() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [detailSection, setDetailSection] = useState(null);
   const [poLead, setPoLead] = useState(null);
 
   // Which columns are visible — remembered per browser.
@@ -261,8 +264,24 @@ export default function LeadsPool() {
     {
       title: 'School', dataIndex: 'schoolName', key: 'schoolName', ...sortable('schoolName'),
       render: (t, r) => (
-        <Button type="link" style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }} onClick={() => setDetailId(r.id)}>
+        <Button type="link" style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }} onClick={() => { setDetailSection(null); setDetailId(r.id); }}>
           {t}
+        </Button>
+      ),
+    },
+    {
+      title: 'Notes', key: 'notes', width: 96, ...sortable('notes'),
+      render: (_, r) => (
+        <Button type="link" size="small" icon={<CommentOutlined />} style={{ padding: 0 }} onClick={() => { setDetailSection('notes'); setDetailId(r.id); }}>
+          {r._count?.notes || 'Add'}
+        </Button>
+      ),
+    },
+    {
+      title: 'Photos', key: 'images', width: 104, ...sortable('images'),
+      render: (_, r) => (
+        <Button type="link" size="small" icon={<PaperClipOutlined />} style={{ padding: 0 }} onClick={() => { setDetailSection('photos'); setDetailId(r.id); }}>
+          {r._count?.images || 'Add'}
         </Button>
       ),
     },
@@ -337,7 +356,7 @@ export default function LeadsPool() {
   const allowedKeys = allowedToggleable.map((c) => c.key);
   const effectiveVisible = isRep ? visibleCols.filter((k) => allowedKeys.includes(k)) : visibleCols;
   const shownColumns = columns.filter(
-    (c) => c.key === 'seq' || c.key === 'schoolName' || c.key === 'actions' || effectiveVisible.includes(c.key)
+    (c) => c.key === 'seq' || c.key === 'schoolName' || c.key === 'notes' || c.key === 'images' || c.key === 'actions' || effectiveVisible.includes(c.key)
   );
 
   const columnsPanel = (
@@ -382,12 +401,14 @@ export default function LeadsPool() {
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+      <Row justify="space-between" align="middle" gutter={[8, 12]} style={{ marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>Leads Pool</Title>
         <Space wrap>
-          <Dropdown trigger={['click']} placement="bottomRight" dropdownRender={() => columnsPanel}>
-            <Button icon={<SettingOutlined />}>Columns</Button>
-          </Dropdown>
+          {!phone && (
+            <Dropdown trigger={['click']} placement="bottomRight" dropdownRender={() => columnsPanel}>
+              <Button icon={<SettingOutlined />}>Columns</Button>
+            </Dropdown>
+          )}
           {canExportLeads && (
             <>
               <Button icon={<DownloadOutlined />} onClick={exportXlsx}>Export</Button>
@@ -509,19 +530,59 @@ export default function LeadsPool() {
         </Row>
       </Card>
 
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={shownColumns}
-        dataSource={data}
-        scroll={{ x: 'max-content' }}
-        showSorterTooltip={{ title: 'Sort' }}
-        onChange={onTableChange}
-        pagination={{
-          current: page, pageSize, total, showSizeChanger: true,
-          showTotal: (t) => `${t} leads`,
-        }}
-      />
+      {phone ? (
+        <div>
+          {loading && data.length === 0 ? <Card loading /> : data.map((r, index) => (
+            <Card key={r.id} size="small" style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ color: token.colorTextTertiary, marginRight: 8 }}>{(page - 1) * pageSize + index + 1}</span>
+                  <Button type="link" style={{ padding: 0, height: 'auto', whiteSpace: 'normal', textAlign: 'left' }} onClick={() => { setDetailSection(null); setDetailId(r.id); }}>
+                    {r.schoolName}
+                  </Button>
+                  <div style={{ marginTop: 6 }}>
+                    <Tag color={stageColor(r.stage)}>{stageName(r.stage)}</Tag>
+                    {r.region || '—'}
+                    {ageingDays(r.leadDate) != null ? ` · ${ageingDays(r.leadDate)}d` : ''}
+                  </div>
+                </div>
+              </div>
+              <Space wrap style={{ marginTop: 10 }}>
+                <Button size="small" icon={<CommentOutlined />} onClick={() => { setDetailSection('notes'); setDetailId(r.id); }}>
+                  Notes {r._count?.notes || 'Add'}
+                </Button>
+                <Button size="small" icon={<PaperClipOutlined />} onClick={() => { setDetailSection('photos'); setDetailId(r.id); }}>
+                  Photos {r._count?.images || 'Add'}
+                </Button>
+              </Space>
+              <div style={{ marginTop: 10 }}>{renderActions(r, true)}</div>
+            </Card>
+          ))}
+          <Pagination
+            style={{ textAlign: 'right' }}
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            showSizeChanger
+            showTotal={(t) => `${t} leads`}
+            onChange={(p, ps) => { setPage(p); setPageSize(ps); }}
+          />
+        </div>
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={shownColumns}
+          dataSource={data}
+          scroll={{ x: 'max-content' }}
+          showSorterTooltip={{ title: 'Sort' }}
+          onChange={onTableChange}
+          pagination={{
+            current: page, pageSize, total, showSizeChanger: true,
+            showTotal: (t) => `${t} leads`,
+          }}
+        />
+      )}
 
       <LeadFormModal
         open={formOpen}
@@ -534,7 +595,8 @@ export default function LeadsPool() {
       <LeadDetailDrawer
         leadId={detailId}
         open={!!detailId}
-        onClose={() => setDetailId(null)}
+        openSection={detailSection}
+        onClose={() => { setDetailId(null); setDetailSection(null); }}
         onChanged={refreshAll}
         closureStage={CLOSURE_STAGE}
         onOpenPo={(l) => { setDetailId(null); setPoLead(l); }}
