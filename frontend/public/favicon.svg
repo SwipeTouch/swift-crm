@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <clipPath id="tab">
+      <rect width="32" height="32" rx="8"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#tab)">
+    <rect width="16" height="32" fill="#ea3b5d"/>
+    <rect x="16" width="16" height="32" fill="#004ecc"/>
+  </g>
+  <path
+    d="M22 10.6c-1-1.9-3.2-3.1-6.1-3.1-4.2 0-6.7 2.2-6.7 5.2 0 2.6 1.9 4 5.6 4.8 3.5.8 5.3 1.6 5.3 3.6 0 2-2 3.4-4.9 3.4-2.4 0-4.3-.9-5.5-2.5"
+    fill="none"
+    stroke="#fff"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
