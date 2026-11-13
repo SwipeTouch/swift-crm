@@ -54,6 +54,44 @@ const prevStageId = (req, id) => {
   return i > 0 ? ids[i - 1] : null;
 };
 const stageName = (req, id) => (stageList(req).find((s) => s.id === id) || {}).name || id;
+const CLOSED_STAGE_ERROR = 'This lead is in Closure. Only an Admin can change its stage.';
+
+// The stage immediately before Closure is the negotiation round.
+const enteringClosureFromPrior = (req, fromStage, toStage) =>
+  toStage === CLOSURE_STAGE && nextStageId(req, fromStage) === CLOSURE_STAGE;
+
+const rupeeNote = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+
+// Sales figures required to move a lead from Negotiation into Closure.
+function closureSales(body) {
+  const sales = (body && body.sales) || {};
+  const valueType = sales.valueType === 'PSPM' || sales.valueType === 'MONTHLY' ? sales.valueType : null;
+  if (!valueType) return { error: 'Choose PSPM or a monthly amount before closing this lead.' };
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : NaN; };
+  let monthly = 0;
+  const patch = {};
+  if (valueType === 'PSPM') {
+    const pspmRate = num(sales.pspmRate);
+    const studentStrength = parseInt(sales.studentStrength, 10);
+    if (!(pspmRate > 0) || !(studentStrength > 0)) {
+      return { error: 'Enter the per-student rate and the student strength.' };
+    }
+    monthly = pspmRate * studentStrength;
+    patch.pspmRate = pspmRate;
+    patch.studentStrength = studentStrength;
+  } else {
+    monthly = num(sales.monthlyAmount);
+    if (!(monthly > 0)) return { error: 'Enter the monthly amount.' };
+    patch.pspmRate = null;
+  }
+  const totalContractValue = num(sales.totalContractValue);
+  if (!(totalContractValue > 0)) return { error: 'Enter the total contract value.' };
+  patch.totalContractValue = totalContractValue;
+  const note = valueType === 'PSPM'
+    ? `PSPM ${rupeeNote(patch.pspmRate)} × ${patch.studentStrength} students = ${rupeeNote(monthly)} / month. Total contract value ${rupeeNote(totalContractValue)}.`
+    : `Monthly amount ${rupeeNote(monthly)}. Total contract value ${rupeeNote(totalContractValue)}.`;
+  return { patch, note };
+}
 
 // Blocks lead-mutating requests when the admin has enabled read-only mode.
 function enforceWritable(req, res, next) {
@@ -578,18 +616,27 @@ router.post('/:id/stage', enforceWritable, async (req, res) => {
   const lead = await prisma.lead.findFirst({ where: { id, tenantId: req.tenantId } });
   if (!lead) return res.status(404).json({ error: 'Not found' });
   if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
-  if (stageLocked(lead, req.user)) return res.status(403).json({ error: 'This lead is closed; its stage can no longer be changed.' });
+  if (stageLocked(lead, req.user)) return res.status(403).json({ error: CLOSED_STAGE_ERROR });
   if (lead.stage === toStage) return res.status(400).json({ error: `Lead is already at ${stageName(req, toStage)}` });
   // Moving a lead to an earlier stage is a privileged correction (admin/manager only).
   if (stageIndex(req, toStage) < stageIndex(req, lead.stage) && !canDemote(req.user)) {
     return res.status(403).json({ error: 'Only an admin or manager can move a lead back to an earlier stage' });
   }
 
+  let salesPatch = {};
+  let historyNote = note || null;
+  if (enteringClosureFromPrior(req, lead.stage, toStage)) {
+    const sales = closureSales(req.body || {});
+    if (sales.error) return res.status(400).json({ error: sales.error });
+    salesPatch = sales.patch;
+    historyNote = [note, sales.note].filter(Boolean).join('\n');
+  }
+
   const closedAt = toStage === CLOSURE_STAGE ? new Date() : (lead.stage === CLOSURE_STAGE ? null : undefined);
   const [updated] = await prisma.$transaction([
-    prisma.lead.update({ where: { id }, data: { stage: toStage, closedAt }, include: leadInclude }),
+    prisma.lead.update({ where: { id }, data: { stage: toStage, closedAt, ...salesPatch }, include: leadInclude }),
     prisma.leadStageHistory.create({
-      data: { tenantId: req.tenantId, leadId: id, fromStage: lead.stage, toStage, note: note || null, changedById: req.user.id },
+      data: { tenantId: req.tenantId, leadId: id, fromStage: lead.stage, toStage, note: historyNote, changedById: req.user.id },
     }),
   ]);
   res.json({ lead: updated });
@@ -601,15 +648,24 @@ router.post('/:id/promote', enforceWritable, async (req, res) => {
   const lead = await prisma.lead.findFirst({ where: { id, tenantId: req.tenantId } });
   if (!lead) return res.status(404).json({ error: 'Not found' });
   if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
-  if (stageLocked(lead, req.user)) return res.status(403).json({ error: 'This lead is closed; its stage can no longer be changed.' });
+  if (stageLocked(lead, req.user)) return res.status(403).json({ error: CLOSED_STAGE_ERROR });
 
   const to = nextStageId(req, lead.stage);
   if (!to) return res.status(400).json({ error: 'Lead is already at the final stage' });
 
+  let salesPatch = {};
+  let historyNote = (req.body && req.body.note) || null;
+  if (enteringClosureFromPrior(req, lead.stage, to)) {
+    const sales = closureSales(req.body || {});
+    if (sales.error) return res.status(400).json({ error: sales.error });
+    salesPatch = sales.patch;
+    historyNote = [req.body && req.body.note, sales.note].filter(Boolean).join('\n');
+  }
+
   const [updated] = await prisma.$transaction([
-    prisma.lead.update({ where: { id }, data: { stage: to, closedAt: to === CLOSURE_STAGE ? new Date() : undefined }, include: leadInclude }),
+    prisma.lead.update({ where: { id }, data: { stage: to, closedAt: to === CLOSURE_STAGE ? new Date() : undefined, ...salesPatch }, include: leadInclude }),
     prisma.leadStageHistory.create({
-      data: { tenantId: req.tenantId, leadId: id, fromStage: lead.stage, toStage: to, note: (req.body && req.body.note) || null, changedById: req.user.id },
+      data: { tenantId: req.tenantId, leadId: id, fromStage: lead.stage, toStage: to, note: historyNote, changedById: req.user.id },
     }),
   ]);
   res.json({ lead: updated });
@@ -624,7 +680,7 @@ router.post('/:id/demote', enforceWritable, async (req, res) => {
   const lead = await prisma.lead.findFirst({ where: { id, tenantId: req.tenantId } });
   if (!lead) return res.status(404).json({ error: 'Not found' });
   if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
-  if (stageLocked(lead, req.user)) return res.status(403).json({ error: 'This lead is closed; its stage can no longer be changed.' });
+  if (stageLocked(lead, req.user)) return res.status(403).json({ error: CLOSED_STAGE_ERROR });
 
   const to = prevStageId(req, lead.stage);
   if (!to) return res.status(400).json({ error: 'Lead is already at the first stage' });
@@ -689,7 +745,9 @@ router.get('/:id/po', async (req, res) => {
 });
 
 // POST /api/leads/:id/po — create or update the PO for a lead.
+// Paused: saved orders stay readable and downloadable, but nothing new can be written.
 router.post('/:id/po', enforceWritable, async (req, res) => {
+  return res.status(403).json({ error: 'Purchase orders are read-only for now.' });
   const lead = await loadLeadForPo(req, res, { write: true });
   if (!lead) return;
   const b = req.body || {};

@@ -11,6 +11,7 @@ import { inr, ageingDays, isReminderDue } from '../format';
 import LeadFormModal from '../components/LeadFormModal';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import PurchaseOrderModal from '../components/PurchaseOrderModal';
+import ClosureReviewModal from '../components/ClosureReviewModal';
 
 const CLOSURE_STAGE = 'closure';
 
@@ -73,6 +74,7 @@ export default function LeadsPool() {
   const [detailId, setDetailId] = useState(null);
   const [detailSection, setDetailSection] = useState(null);
   const [poLead, setPoLead] = useState(null);
+  const [closingLead, setClosingLead] = useState(null);
 
   // Which columns are visible — remembered per browser.
   const [visibleCols, setVisibleCols] = useState(() => {
@@ -153,11 +155,14 @@ export default function LeadsPool() {
 
   const promote = async (lead) => {
     const to = nextStageId(lead.stage);
+    if (to === CLOSURE_STAGE) {
+      setClosingLead(lead);
+      return;
+    }
     try {
       await api.post(`/leads/${lead.id}/promote`, {});
       message.success(`${lead.schoolName} → ${stageName(to)}`);
       refreshAll();
-      if (to === CLOSURE_STAGE) setPoLead({ ...lead, stage: to }); // deal won → raise PO
     } catch (e) {
       message.error(e.response?.data?.error || 'Promote failed');
     }
@@ -604,8 +609,14 @@ export default function LeadsPool() {
       <PurchaseOrderModal
         lead={poLead}
         open={!!poLead}
-        canWrite={canWrite}
+        canWrite={false}
         onClose={() => setPoLead(null)}
+      />
+      <ClosureReviewModal
+        lead={closingLead}
+        open={!!closingLead}
+        onClose={() => setClosingLead(null)}
+        onDone={refreshAll}
       />
     </div>
   );

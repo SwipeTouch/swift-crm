@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import {
-  Modal, Form, Input, InputNumber, Select, DatePicker, Radio, Button, Space, Divider, Alert, Typography, Grid, App,
+  Modal, Form, Input, InputNumber, Select, DatePicker, Radio, Button, Space, Divider, Alert, Grid, App,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api';
 import { inr } from '../format';
 
-const { Text } = Typography;
 const ADDRESSEE_OPTIONS = ['Principal', 'Director', 'Promoter', 'Chairman'].map((v) => ({ value: v, label: v }));
 
 // Collects Purchase Order details for a closed lead and generates the document.
 export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
+  // Flip this back to `canWrite` when purchase orders can be created again.
+  const editable = canWrite && false;
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [saving, setSaving] = useState(false);
@@ -103,10 +104,17 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
         <Button key="pdf" icon={<FilePdfOutlined />} disabled={!saved} onClick={() => download('pdf')}>Download PDF</Button>,
         <Button key="docx" icon={<FileWordOutlined />} disabled={!saved} onClick={() => download('docx')}>Download Word</Button>,
         <Button key="close" onClick={onClose}>Close</Button>,
-        canWrite && <Button key="save" type="primary" loading={saving} onClick={save}>{saved ? 'Update' : 'Save'}</Button>,
+        editable && <Button key="save" type="primary" loading={saving} onClick={save}>{saved ? 'Update' : 'Save'}</Button>,
       ].filter(Boolean)}
     >
-      <Form form={form} layout="vertical" disabled={!canWrite}>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Purchase orders are read-only for now. A saved order can be reviewed and downloaded. Creating or updating one is turned off."
+      />
+      {saved && (
+      <Form form={form} layout="vertical" disabled={!editable}>
         <div style={row}>
           <Form.Item name="schoolName" label="School name" style={phone ? field : { flex: 2 }} rules={[{ required: true }]}>
             <Input />
@@ -172,18 +180,20 @@ export default function PurchaseOrderModal({ lead, open, onClose, canWrite }) {
                   <Form.Item {...rest} name={[name, 'phone']} rules={[{ required: true, message: 'Phone required' }]}>
                     <Input placeholder="Phone *" />
                   </Form.Item>
-                  {fields.length > 1 && <DeleteOutlined onClick={() => remove(name)} />}
+                  {editable && fields.length > 1 && <DeleteOutlined onClick={() => remove(name)} />}
                 </Space>
               ))}
-              <Button type="dashed" onClick={() => add({ name: '', email: '', phone: '' })} icon={<PlusOutlined />} block>
-                Add contact
-              </Button>
+              {editable && (
+                <Button type="dashed" onClick={() => add({ name: '', email: '', phone: '' })} icon={<PlusOutlined />} block>
+                  Add contact
+                </Button>
+              )}
             </>
           )}
         </Form.List>
 
-        {!canWrite && <Text type="secondary">You have view-only access — you can download an existing PO but not edit it.</Text>}
       </Form>
+      )}
     </Modal>
   );
 }

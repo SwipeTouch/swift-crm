@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography, Collapse, Image, Popconfirm, Grid, theme } from 'antd';
+import { Drawer, Descriptions, Tag, Timeline, Divider, Button, Select, Input, Space, App, Typography, Collapse, Image, Popconfirm, Grid, Alert, theme } from 'antd';
 import dayjs from 'dayjs';
 import api from '../api';
 import { inr, ageingDays, isReminderDue } from '../format';
 import { useAuth, canManageData } from '../auth';
 import { useConfig } from '../config';
+import ClosureReviewModal from './ClosureReviewModal';
 
 const { Text } = Typography;
 const CONTACT_LABEL = { INFLUENCER: 'Influencer', PROMOTER: 'School Promoter' };
@@ -28,6 +29,7 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
   const [note, setNote] = useState('');
   const [remark, setRemark] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [photosOpen, setPhotosOpen] = useState(false);
   const [openKeys, setOpenKeys] = useState([]);
@@ -51,6 +53,7 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
 
   useEffect(() => {
     if (open && leadId) load();
+    if (!open) setClosing(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, leadId]);
 
@@ -99,12 +102,15 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
 
   const changeStage = async () => {
     if (!toStage) return message.warning('Pick a stage to move to');
+    if (toStage === closureStage && nextStageId(lead.stage) === closureStage) {
+      setClosing(true);
+      return;
+    }
     try {
       await api.post(`/leads/${lead.id}/stage`, { toStage, note });
       message.success(`Moved to ${stageName(toStage)}`);
       load();
       onChanged && onChanged();
-      if (toStage === closureStage && onOpenPo) onOpenPo(lead);
     } catch (e) {
       message.error(e.response?.data?.error || 'Stage change failed');
     }
@@ -172,12 +178,15 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
 
   const promote = async () => {
     const to = nextStageId(lead.stage);
+    if (to === closureStage) {
+      setClosing(true);
+      return;
+    }
     try {
       await api.post(`/leads/${lead.id}/promote`, { note });
       message.success('Promoted to next stage');
       load();
       onChanged && onChanged();
-      if (to === closureStage && onOpenPo) onOpenPo(lead);
     } catch (e) {
       message.error(e.response?.data?.error || 'Promote failed');
     }
@@ -338,6 +347,16 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
             }]}
           />
 
+          {stageLocked(lead.stage) && (
+            <Alert
+              style={{ marginTop: 16 }}
+              type="warning"
+              showIcon
+              message="This lead is in Closure and cannot be moved back."
+              description="Only an Admin can revert it and change its stage."
+            />
+          )}
+
           {lead.stage === closureStage && onOpenPo && (
             <Button type="primary" block style={{ marginTop: 16 }} onClick={() => onOpenPo(lead)}>
               Purchase Order
@@ -388,13 +407,24 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
                   <div style={{ fontSize: 12, color: '#888' }}>
                     {new Date(h.changedAt).toLocaleString()} · {h.changedBy?.name || 'System'}
                   </div>
-                  {h.note && <div style={{ fontSize: 13 }}>{h.note}</div>}
+                  {h.note && <div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{h.note}</div>}
                 </div>
               ),
             }))}
           />
         </>
       )}
+      <ClosureReviewModal
+        lead={lead}
+        open={closing}
+        note={note}
+        onClose={() => setClosing(false)}
+        onDone={() => {
+          setClosing(false);
+          load();
+          onChanged && onChanged();
+        }}
+      />
     </Drawer>
   );
 }
