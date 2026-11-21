@@ -9,7 +9,7 @@ router.use(requireAuth);
 const ROLES = ['SUPER_ADMIN', 'MANAGER', 'SALES_REP'];
 const publicSelect = {
   id: true, name: true, email: true, role: true, region: true, active: true,
-  locked: true, canExport: true, createdAt: true,
+  locked: true, canExport: true, canClearFunnel: true, createdAt: true,
   funnelAccess: { select: { id: true, name: true } },
 };
 
@@ -36,7 +36,7 @@ async function tenantFunnelIds(req, funnelIds) {
 
 // POST /api/users — Super Admin only
 router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), async (req, res) => {
-  const { name, email, password, role, region, funnelIds, locked, canExport } = req.body || {};
+  const { name, email, password, role, region, funnelIds, locked, canExport, canClearFunnel } = req.body || {};
   if (!name || !email || !password) return res.status(400).json({ error: 'name, email, password are required' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   if (role && !ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
@@ -53,6 +53,9 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), async (req, res) => {
   const data = { tenantId: req.tenantId, name: String(name).trim(), email: emailLc, passwordHash, role: role || 'SALES_REP', region: region || null };
   if (locked !== undefined) data.locked = !!locked;
   if (canExport !== undefined) data.canExport = !!canExport;
+  if (req.user.role === 'SUPER_ADMIN') {
+    data.canClearFunnel = (role || 'SALES_REP') === 'MANAGER' && !!canClearFunnel;
+  }
   // Only Super Admin assigns funnel visibility (and only to funnels in this tenant).
   if (req.user.role === 'SUPER_ADMIN' && Array.isArray(funnelIds) && funnelIds.length) {
     const ids = await tenantFunnelIds(req, funnelIds);
@@ -67,7 +70,7 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), async (req, res) => {
 // Managers may not modify a Super Admin, nor grant the Super Admin role.
 router.put('/:id', requireRole('SUPER_ADMIN', 'MANAGER'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { name, role, region, active, password, funnelIds, locked, canExport } = req.body || {};
+  const { name, role, region, active, password, funnelIds, locked, canExport, canClearFunnel } = req.body || {};
 
   const target = await prisma.user.findFirst({ where: { id, tenantId: req.tenantId } });
   if (!target) return res.status(404).json({ error: 'Not found' });
@@ -82,6 +85,11 @@ router.put('/:id', requireRole('SUPER_ADMIN', 'MANAGER'), async (req, res) => {
   if (active !== undefined) data.active = !!active;
   if (locked !== undefined) data.locked = !!locked;
   if (canExport !== undefined) data.canExport = !!canExport;
+  if (req.user.role === 'SUPER_ADMIN' && (canClearFunnel !== undefined || role !== undefined)) {
+    const nextRole = role !== undefined ? role : target.role;
+    const nextFlag = canClearFunnel !== undefined ? !!canClearFunnel : target.canClearFunnel;
+    data.canClearFunnel = nextRole === 'MANAGER' && nextFlag;
+  }
   if (role !== undefined) {
     if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
     data.role = role;

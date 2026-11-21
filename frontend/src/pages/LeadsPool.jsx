@@ -178,6 +178,16 @@ export default function LeadsPool() {
     }
   };
 
+  const markNotInterested = async (lead) => {
+    try {
+      await api.post(`/leads/${lead.id}/stage`, { toStage: 'not-interested' });
+      message.success(`${lead.schoolName} → ${stageName('not-interested')}`);
+      refreshAll();
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Could not mark Not interested');
+    }
+  };
+
   const exportXlsx = async () => {
     try {
       const params = {};
@@ -231,6 +241,11 @@ export default function LeadsPool() {
           <Button size="small" block={vertical} type="primary" icon={<ArrowRightOutlined />} disabled={!next} onClick={() => promote(r)}>
             {next ? `To ${stageName(next)}` : 'Final'}
           </Button>
+        )}
+        {canWrite && !locked && r.stage !== CLOSURE_STAGE && r.stage !== 'not-interested' && (
+          <Popconfirm title="Mark this lead as Not interested?" onConfirm={() => markNotInterested(r)} okText="Not interested">
+            <Button size="small" block={vertical}>Not interested</Button>
+          </Popconfirm>
         )}
         {locked && <Tag color="green">Closed</Tag>}
         {r.stage === CLOSURE_STAGE && (
@@ -452,9 +467,11 @@ export default function LeadsPool() {
             />
           </div>
           <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {orderedIds.map((id) => (
-              <Tag key={id} color={stageColor(id)}>{stageName(id)}: {selectedStats.byStage[id] || 0}</Tag>
-            ))}
+            {['not-interested', 'stale', ...orderedIds.filter((id) => id !== 'not-interested' && id !== 'stale')]
+              .filter((id) => orderedIds.includes(id))
+              .map((id) => (
+                <Tag key={id} color={stageColor(id)}>{stageName(id)}: {selectedStats.byStage[id] || 0}</Tag>
+              ))}
             <span style={{ marginLeft: 'auto', fontWeight: 600 }}>
               {selectedStats.total} leads · {inr(selectedStats.totalTCV)} TCV
             </span>

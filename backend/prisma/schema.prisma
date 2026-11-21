@@ -49,8 +49,9 @@ model User {
   role         Role     @default(SALES_REP)
   region       String?
   active       Boolean  @default(true)
-  locked       Boolean  @default(false) // per-user view-only lock
-  canExport    Boolean  @default(true)  // per-user export/print permission
+  locked         Boolean  @default(false) // per-user view-only lock
+  canExport      Boolean  @default(true)  // per-user export/print permission
+  canClearFunnel Boolean  @default(false) // manager may delete every lead in a funnel; the funnel stays
   createdAt    DateTime @default(now())
 
   ownedLeads     Lead[]             @relation("OwnerLeads")
@@ -72,6 +73,7 @@ model Funnel {
   tenant      Tenant   @relation(fields: [tenantId], references: [id])
   name        String
   description String?
+  isMisc      Boolean  @default(false) // holding funnel for leads whose funnel was removed
   createdById Int?
   createdBy   User?    @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now())

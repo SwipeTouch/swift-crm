@@ -375,6 +375,8 @@ export default function LeadDetailDrawer({ leadId, open, openSection, onClose, o
                   options={orderedIds
                     .filter((id) => {
                       if (id === lead.stage) return false;
+                      // Not Interested is available from any open stage.
+                      if (id === 'not-interested') return true;
                       // Reps can only move forward; admins/managers can also send back.
                       if (canManageData(user)) return true;
                       return stageIndex(id) > stageIndex(lead.stage);

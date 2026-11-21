@@ -31,7 +31,7 @@ router.post('/login', async (req, res) => {
     tenant: { code: tenant.code, name: tenant.name },
     user: {
       id: user.id, name: user.name, email: user.email, role: user.role, region: user.region,
-      locked: user.locked, canExport: user.canExport,
+      locked: user.locked, canExport: user.canExport, canClearFunnel: user.canClearFunnel,
       funnelIds: user.funnelAccess.map((f) => f.id),
     },
   });
@@ -41,7 +41,7 @@ router.post('/login', async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   const user = await prisma.user.findFirst({
     where: { id: req.user.id, tenantId: req.tenantId },
-    select: { id: true, name: true, email: true, role: true, region: true, locked: true, canExport: true, funnelAccess: { select: { id: true } } },
+    select: { id: true, name: true, email: true, role: true, region: true, locked: true, canExport: true, canClearFunnel: true, funnelAccess: { select: { id: true } } },
   });
   if (!user) return res.status(404).json({ error: 'Not found' });
   const { funnelAccess, ...rest } = user;

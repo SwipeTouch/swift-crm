@@ -46,26 +46,70 @@ export default function Funnels() {
 
   const remove = async (f) => {
     try {
-      await api.delete(`/funnels/${f.id}`);
-      message.success('Funnel deleted (its leads were kept and unassigned)');
+      const r = await api.delete(`/funnels/${f.id}`);
+      const closed = r.data.closureCount || 0;
+      message.success(
+        closed
+          ? `${f.name} was removed. ${closed} closed lead${closed === 1 ? '' : 's'} now sit in ${r.data.movedTo}, with the other leads from this funnel.`
+          : `${f.name} was removed. Its leads now sit in ${r.data.movedTo}.`
+      );
       load();
     } catch (e) {
       message.error(e.response?.data?.error || 'Delete failed');
     }
   };
 
+  const clearLeads = async (f) => {
+    try {
+      const r = await api.delete(`/funnels/${f.id}/leads`);
+      message.success(`${r.data.deleted} lead${r.data.deleted === 1 ? '' : 's'} removed. ${f.name} is still here.`);
+      load();
+    } catch (e) {
+      message.error(e.response?.data?.error || 'Could not clear this funnel');
+    }
+  };
+
+  const canClearFunnelData = isAdmin(user) || (user?.role === 'MANAGER' && user?.canClearFunnel);
+
   const columns = [
     sequenceColumn,
-    { title: 'Funnel', dataIndex: 'name', key: 'name', sorter: (a, b) => compareText(a.name, b.name) },
+    {
+      title: 'Funnel', dataIndex: 'name', key: 'name', sorter: (a, b) => compareText(a.name, b.name),
+      render: (name, r) => (
+        <Space size={6}>
+          <span>{name}</span>
+          {r.isMisc && <Tag>Holding</Tag>}
+        </Space>
+      ),
+    },
     { title: 'Description', dataIndex: 'description', key: 'description', sorter: (a, b) => compareText(a.description, b.description), render: (v) => v || '—' },
     { title: 'Leads', dataIndex: 'leadCount', key: 'leadCount', sorter: (a, b) => compareNumber(a.leadCount, b.leadCount), render: (v) => <Tag>{v}</Tag> },
     canManageData(user) && {
-      title: 'Actions', key: 'actions', width: 180,
+      title: 'Actions', key: 'actions', width: 280,
       render: (_, r) => (
-        <Space>
+        <Space wrap>
           <Button size="small" onClick={() => openModal(r)}>Edit</Button>
-          {isAdmin(user) && (
-            <Popconfirm title="Delete this funnel?" description="Leads stay in the pool, just unassigned." onConfirm={() => remove(r)} okText="Delete" okButtonProps={{ danger: true }}>
+          {canClearFunnelData && (
+            <Popconfirm
+              title={`Delete every lead in ${r.name}?`}
+              description="The funnel name stays. Notes, photos, and purchase orders on those leads are removed."
+              onConfirm={() => clearLeads(r)}
+              okText="Delete leads"
+              okButtonProps={{ danger: true }}
+            >
+              <Button size="small" danger disabled={!r.leadCount}>Clear leads</Button>
+            </Popconfirm>
+          )}
+          {isAdmin(user) && !r.isMisc && (
+            <Popconfirm
+              title={`Delete ${r.name}?`}
+              description={r.closureCount
+                ? `${r.closureCount} closed lead${r.closureCount === 1 ? '' : 's'} cannot be left without a funnel. They move to Miscellaneous, along with the other leads. This funnel name is then removed.`
+                : 'Its leads move to Miscellaneous so they stay filed. This funnel name is then removed.'}
+              onConfirm={() => remove(r)}
+              okText="Delete funnel"
+              okButtonProps={{ danger: true }}
+            >
               <Button size="small" danger>Delete</Button>
             </Popconfirm>
           )}

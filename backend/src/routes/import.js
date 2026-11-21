@@ -49,8 +49,17 @@ function normalizeContactType(v) {
 
 // Match an imported stage value to a configured stage id (by id or name), else the first stage.
 function normalizeStage(v, stages) {
-  const s = String(v || '').trim().toLowerCase();
-  const match = stages.find((st) => st.id.toLowerCase() === s || st.name.toLowerCase() === s);
+  const s = String(v || '').trim().toLowerCase().replace(/\./g, '');
+  const aliases = {
+    'not interested': 'not-interested',
+    'not int': 'not-interested',
+  };
+  const alias = aliases[s];
+  const match = stages.find((st) => {
+    const id = st.id.toLowerCase();
+    const name = st.name.toLowerCase().replace(/\./g, '');
+    return id === s || name === s || id === alias;
+  });
   return match ? match.id : stages[0].id;
 }
 
@@ -60,16 +69,17 @@ const IMPORT_HEADERS = [
   'Total Contract Value', 'PSPM Rate', 'CAC', 'Lead Date', 'Reminder',
 ];
 
-// Example schools covering regions, boards, stages, and both contact types.
+// One example school for every stage, so the sample shows how each value is written.
 const SAMPLE_ROWS = [
   ['Delhi Public School', 'CBSE', 1200, 'North', 'New Delhi', 'Mr Sharma', 'Promoter', '9876543210', 'Cold', 'Field visit', 500000, 250, 15000, '2026-10-01', '2026-11-15'],
   ["St Xavier's High School", 'ICSE', 800, 'South', 'Chennai', 'Mrs Rao', 'Influencer', '9840011122', 'Warm', 'Referral', 350000, 200, 12000, '2026-09-12', '2026-11-20'],
   ['Kendriya Vidyalaya', 'CBSE', 1500, 'West', 'Pune', 'Mr Kadam', 'Promoter', '9822012345', 'Hot', 'Exhibition', 750000, 180, 18000, '2026-08-20', '2026-11-10'],
   ['Greenwood Public School', 'State Board', 450, 'East', 'Kolkata', 'Ms Iyer', 'Influencer', '9830012345', 'Negotiation', 'Website', 220000, 150, 8000, '2026-07-05', '2026-11-18'],
-  ['Ryan International School', 'CBSE', 2000, 'North', 'Jaipur', 'Mr Mehta', 'Promoter', '9810011223', 'Cold', 'Cold call', 900000, 220, 20000, '2026-10-15', ''],
-  ['DAV Public School', 'CBSE', 600, 'South', 'Bengaluru', 'Mrs Nair', 'Influencer', '9900012345', 'Warm', 'Partner', 280000, 175, 9000, '2026-09-28', '2026-12-01'],
   ['City Montessori School', 'ICSE', 3000, 'North', 'Lucknow', 'Mr Verma', 'Promoter', '9790012345', 'Closure', 'Field visit', 1200000, 160, 25000, '2026-06-01', ''],
-  ['Bhavans Vidyalaya', 'State Board', 350, 'West', 'Ahmedabad', 'Ms Desai', 'Influencer', '9720012345', 'Not Int.', 'Cold call', '', '', 4000, '2026-10-20', '2026-11-25'],
+  ['Bhavans Vidyalaya', 'State Board', 350, 'West', 'Ahmedabad', 'Ms Desai', 'Influencer', '9720012345', 'Not Interested', 'Cold call', 0, 0, 4000, '2026-10-20', '2026-11-25'],
+  ['Ryan International School', 'CBSE', 2000, 'North', 'Jaipur', 'Mr Mehta', 'Promoter', '9810011223', 'Stale', 'Cold call', 900000, 220, 20000, '2026-04-15', ''],
+  ['DAV Public School', 'CBSE', 600, 'South', 'Bengaluru', 'Mrs Nair', 'Influencer', '9900012345', 'Warm', 'Partner', 280000, 175, 9000, '2026-09-28', '2026-12-01'],
+  ['National Public School', 'CBSE', 1800, 'South', 'Bengaluru', 'Mr Krishnan', 'Promoter', '9880012345', 'Hot', 'Exhibition', 640000, 190, 16000, '2026-08-02', '2026-11-28'],
 ];
 
 function sendWorkbook(res, rows, filename) {
@@ -82,9 +92,9 @@ function sendWorkbook(res, rows, filename) {
   res.send(buf);
 }
 
-// GET /api/import/template — header row plus one example
+// GET /api/import/template — header row only, so it stays distinct from the filled sample.
 router.get('/template', requireRole('SUPER_ADMIN', 'MANAGER'), (req, res) => {
-  sendWorkbook(res, [IMPORT_HEADERS, SAMPLE_ROWS[0]], 'leads-import-template.xlsx');
+  sendWorkbook(res, [IMPORT_HEADERS], 'leads-import-template.xlsx');
 });
 
 // GET /api/import/sample — header row plus several example schools
@@ -118,6 +128,17 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
   }
 
   const defaultFunnelId = req.body.funnelId ? parseInt(req.body.funnelId, 10) : null;
+  if (!defaultFunnelId) {
+    return res.status(400).json({ error: 'Choose a funnel. Every imported row must be assigned to one.' });
+  }
+  const useCalendarDate = req.body.dateMode === 'calendar';
+  let calendarDate = null;
+  if (useCalendarDate) {
+    calendarDate = new Date(req.body.leadDate);
+    if (Number.isNaN(calendarDate.getTime())) {
+      return res.status(400).json({ error: 'Pick a lead date on the calendar' });
+    }
+  }
   // A posted default funnel must belong to this tenant.
   if (defaultFunnelId) {
     const f = await prisma.funnel.findFirst({ where: { id: defaultFunnelId, tenantId: req.tenantId }, select: { id: true } });
@@ -171,8 +192,12 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
       funnelId: defaultFunnelId,
       ownerId: defaultOwnerId,
     };
-    const ld = toDate(get(row, 'leadDate'));
-    if (ld) lead.leadDate = ld;
+    if (useCalendarDate) {
+      lead.leadDate = calendarDate;
+    } else {
+      const ld = toDate(get(row, 'leadDate'));
+      if (ld) lead.leadDate = ld;
+    }
     toCreate.push(lead);
   }
 

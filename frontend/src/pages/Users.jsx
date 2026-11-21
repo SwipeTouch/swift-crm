@@ -41,7 +41,7 @@ export default function Users() {
       if (u) {
         form.setFieldsValue({
           name: u.name, email: u.email, role: u.role, region: u.region, active: u.active,
-          locked: u.locked, canExport: u.canExport,
+          locked: u.locked, canExport: u.canExport, canClearFunnel: u.canClearFunnel,
           funnelIds: (u.funnelAccess || []).map((f) => f.id),
         });
       } else {
@@ -59,7 +59,10 @@ export default function Users() {
           locked: !!values.locked, canExport: values.canExport !== false,
         };
         if (values.password) payload.password = values.password;
-        if (isSuperAdmin) payload.funnelIds = values.funnelIds || [];
+        if (isSuperAdmin) {
+          payload.funnelIds = values.funnelIds || [];
+          payload.canClearFunnel = values.role === 'MANAGER' && !!values.canClearFunnel;
+        }
         await api.put(`/users/${editing.id}`, payload);
       } else {
         await api.post('/users', values);
@@ -97,6 +100,7 @@ export default function Users() {
         <Space size={4} wrap>
           {r.locked ? <Tag color="red">View-only</Tag> : <Tag color="green">Can edit</Tag>}
           {r.canExport === false && <Tag color="orange">No export</Tag>}
+          {r.role === 'MANAGER' && r.canClearFunnel && <Tag color="purple">Can clear funnels</Tag>}
         </Space>
       ),
     },
@@ -120,7 +124,7 @@ export default function Users() {
       </Card>
 
       <Modal open={open} title={editing ? 'Edit user' : 'New user'} onOk={save} onCancel={() => setOpen(false)} destroyOnHidden>
-        <Form form={form} layout="vertical" initialValues={{ role: 'SALES_REP', active: true, locked: false, canExport: true }}>
+        <Form form={form} layout="vertical" initialValues={{ role: 'SALES_REP', active: true, locked: false, canExport: true, canClearFunnel: false }}>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
@@ -154,6 +158,20 @@ export default function Users() {
                 placeholder="Assign one or more funnels"
                 options={funnels.map((f) => ({ value: f.id, label: f.name }))}
               />
+            </Form.Item>
+          )}
+          {isSuperAdmin && (
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.role !== cur.role}>
+              {() => form.getFieldValue('role') === 'MANAGER' ? (
+                <Form.Item
+                  name="canClearFunnel"
+                  label="Can clear funnel data"
+                  valuePropName="checked"
+                  tooltip="Lets this manager delete every lead in a funnel. The funnel name stays."
+                >
+                  <Switch />
+                </Form.Item>
+              ) : null}
             </Form.Item>
           )}
           <Space size="large" wrap>

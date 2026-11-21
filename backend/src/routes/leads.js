@@ -618,8 +618,10 @@ router.post('/:id/stage', enforceWritable, async (req, res) => {
   if (!canEditLead(req.user, lead, req.userFunnelIds)) return res.status(403).json({ error: 'Forbidden' });
   if (stageLocked(lead, req.user)) return res.status(403).json({ error: CLOSED_STAGE_ERROR });
   if (lead.stage === toStage) return res.status(400).json({ error: `Lead is already at ${stageName(req, toStage)}` });
+  // Not Interested is a side exit from any open stage, including one later in the list.
+  const notInterestedExit = toStage === 'not-interested' && lead.stage !== CLOSURE_STAGE;
   // Moving a lead to an earlier stage is a privileged correction (admin/manager only).
-  if (stageIndex(req, toStage) < stageIndex(req, lead.stage) && !canDemote(req.user)) {
+  if (!notInterestedExit && stageIndex(req, toStage) < stageIndex(req, lead.stage) && !canDemote(req.user)) {
     return res.status(403).json({ error: 'Only an admin or manager can move a lead back to an earlier stage' });
   }
 

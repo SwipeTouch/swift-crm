@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Upload, Button, Select, Typography, Space, Alert, Table, Divider, App } from 'antd';
+import { Card, Upload, Button, Select, DatePicker, Radio, Typography, Alert, Table, Divider, App, theme } from 'antd';
 import { InboxOutlined, DownloadOutlined } from '@ant-design/icons';
 import api from '../api';
 import { compareNumber, compareText, sequenceColumn } from '../tableSort';
@@ -9,8 +9,11 @@ const { Dragger } = Upload;
 
 export default function ImportPage() {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [funnels, setFunnels] = useState([]);
   const [funnelId, setFunnelId] = useState(undefined);
+  const [dateMode, setDateMode] = useState('template');
+  const [leadDate, setLeadDate] = useState(null);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
@@ -34,10 +37,16 @@ export default function ImportPage() {
   };
 
   const doUpload = async () => {
+    if (!funnelId) return message.warning('Assign all rows to a funnel');
     if (!file) return message.warning('Choose a file first');
     const fd = new FormData();
     fd.append('file', file);
-    if (funnelId) fd.append('funnelId', funnelId);
+    fd.append('funnelId', funnelId);
+    fd.append('dateMode', dateMode);
+    if (dateMode === 'calendar') {
+      if (!leadDate) return message.warning('Pick a lead date on the calendar');
+      fd.append('leadDate', leadDate.startOf('day').toISOString());
+    }
     setUploading(true);
     setResult(null);
     try {
@@ -64,18 +73,80 @@ export default function ImportPage() {
           <Text code>Contact Type</Text>, <Text code>Contact Phone</Text>, <Text code>Stage</Text>,{' '}
           <Text code>Source</Text>, <Text code>Total Contract Value</Text>, <Text code>PSPM Rate</Text>,{' '}
           <Text code>Lead Date</Text>, <Text code>Reminder</Text>. Only <Text strong>School Name</Text> is
-          required for import. Download the sample file for a filled sheet you can import as-is.
+          required for import.
         </Paragraph>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/template', 'leads-import-template.xlsx')}>Download template</Button>
-          <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/sample', 'leads-import-sample.xlsx')}>Download sample</Button>
-          <Select
-            allowClear style={{ minWidth: 240 }} placeholder="Assign all rows to a funnel (optional)"
-            value={funnelId} onChange={setFunnelId}
-            options={funnels.map((f) => ({ value: f.id, label: f.name }))}
-          />
-        </Space>
 
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div>
+            <Text strong>1. Set the lead date</Text>
+            <Radio.Group
+              value={dateMode}
+              onChange={(e) => setDateMode(e.target.value)}
+              style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}
+            >
+              <Radio value="template">Download template and put each date in the sheet</Radio>
+              <Radio value="calendar">Use the calendar for every row</Radio>
+            </Radio.Group>
+            {dateMode === 'template' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 12 }}>
+                <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/template', 'leads-import-template.xlsx')}>
+                  Download template
+                </Button>
+                <Text type="secondary">Header row only. Put each school’s lead date in the Lead Date column.</Text>
+                <Button icon={<DownloadOutlined />} onClick={() => downloadFile('/import/sample', 'leads-import-sample.xlsx')}>
+                  Download sample
+                </Button>
+                <Text type="secondary">Several schools, one for each stage: Cold, Warm, Hot, Negotiation, Closure, Not Interested, and Stale.</Text>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 12 }}>
+                <Text>One lead date for every row. Dates already written in the sheet are ignored.</Text>
+                <DatePicker
+                  value={leadDate}
+                  onChange={setLeadDate}
+                  format="DD MMM YYYY"
+                  allowClear={false}
+                  style={{ width: 240 }}
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Text strong>2. Assign all rows to a funnel</Text>
+            <div style={{ marginTop: 8 }}>
+              <style>{`
+                .import-funnel.ant-select .ant-select-selector {
+                  border-color: ${token.colorText} !important;
+                  color: ${token.colorText};
+                  background: ${token.colorBgContainer} !important;
+                }
+                .import-funnel.ant-select .ant-select-selection-item,
+                .import-funnel.ant-select .ant-select-selection-placeholder,
+                .import-funnel.ant-select .ant-select-arrow {
+                  color: ${token.colorText} !important;
+                  opacity: 1;
+                }
+                .import-funnel.ant-select-focused .ant-select-selector {
+                  border-color: ${token.colorPrimary} !important;
+                  box-shadow: 0 0 0 2px ${token.colorPrimaryBg} !important;
+                }
+              `}</style>
+              <Select
+                className="import-funnel"
+                size="large"
+                placeholder="Assign all rows to a funnel"
+                value={funnelId}
+                onChange={setFunnelId}
+                style={{ width: '100%', maxWidth: 420 }}
+                options={funnels.map((f) => ({ value: f.id, label: f.name }))}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Text strong>3. Upload the file</Text>
+            <div style={{ marginTop: 8 }}>
         <Dragger
           multiple={false}
           maxCount={1}
@@ -88,10 +159,20 @@ export default function ImportPage() {
           <p className="ant-upload-text">Click or drag an .xlsx / .csv file here</p>
           <p className="ant-upload-hint">Max 5 MB. Nothing is imported until you click Import below.</p>
         </Dragger>
+            </div>
+          </div>
 
-        <Button type="primary" style={{ marginTop: 16 }} loading={uploading} disabled={!file} onClick={doUpload}>
-          Import
-        </Button>
+          <div>
+            <Button
+              type="primary"
+              loading={uploading}
+              disabled={!file || !funnelId || (dateMode === 'calendar' && !leadDate)}
+              onClick={doUpload}
+            >
+              4. Import
+            </Button>
+          </div>
+        </div>
       </Card>
 
       {result && (
