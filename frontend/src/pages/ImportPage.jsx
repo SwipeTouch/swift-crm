@@ -56,7 +56,7 @@ export default function ImportPage() {
       setFile(null);
     } catch (e) {
       message.error(e.response?.data?.error || 'Import failed');
-      if (e.response?.data?.errors) setResult({ created: 0, ...e.response.data });
+      if (e.response?.data?.errors || e.response?.data?.ignoredColumns) setResult({ created: 0, ...e.response.data });
     } finally {
       setUploading(false);
     }
@@ -182,6 +182,30 @@ export default function ImportPage() {
             message={`${result.created} leads imported, ${result.skipped || (result.errors ? result.errors.length : 0)} skipped`}
             showIcon
           />
+          {result.ignoredColumns && result.ignoredColumns.length > 0 && (
+            <Alert
+              type="warning"
+              style={{ marginTop: 12 }}
+              message={`Columns not imported: ${result.ignoredColumns.join(', ')}`}
+              description="These headers are not recognised. Rename them to a recognised column if you need their values."
+              showIcon
+            />
+          )}
+          {result.warnings && result.warnings.length > 0 && (
+            <>
+              <Divider>Values not imported</Divider>
+              <Table
+                size="small" rowKey={(r) => `${r.row}-${r.column}`} pagination={false}
+                columns={[
+                  sequenceColumn,
+                  { title: 'Row', dataIndex: 'row', width: 80, sorter: (a, b) => compareNumber(a.row, b.row) },
+                  { title: 'Problem', dataIndex: 'warning', sorter: (a, b) => compareText(a.warning, b.warning) },
+                ]}
+                showSorterTooltip={{ title: 'Sort' }}
+                dataSource={result.warnings}
+              />
+            </>
+          )}
           {result.errors && result.errors.length > 0 && (
             <>
               <Divider>Skipped rows</Divider>
