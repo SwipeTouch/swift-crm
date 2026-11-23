@@ -29,15 +29,19 @@ const HEADER_ALIASES = {
   reminderAt: ['reminder', 'reminder date', 'notification reminder'],
 };
 
+// Columns are keyed by letter. Headers we do not recognise are returned so they can be reported.
 function buildHeaderMap(headerRow) {
   const map = {};
-  headerRow.forEach((raw, idx) => {
-    const h = String(raw || '').trim().toLowerCase();
-    for (const [field, aliases] of Object.entries(HEADER_ALIASES)) {
-      if (aliases.includes(h)) map[field] = idx;
-    }
+  const ignored = [];
+  Object.entries(headerRow).forEach(([col, raw]) => {
+    const name = String(raw ?? '').trim();
+    if (!name) return;
+    const h = name.toLowerCase();
+    const field = Object.keys(HEADER_ALIASES).find((f) => HEADER_ALIASES[f].includes(h));
+    if (field) map[field] = col;
+    else ignored.push(name);
   });
-  return map;
+  return { map, ignored };
 }
 
 function normalizeContactType(v) {
@@ -47,9 +51,11 @@ function normalizeContactType(v) {
   return null;
 }
 
-// Match an imported stage value to a configured stage id (by id or name), else the first stage.
+// Match an imported stage value to a configured stage id (by id or name).
+// Blank means the first stage; an unrecognised value returns null.
 function normalizeStage(v, stages) {
-  const s = String(v || '').trim().toLowerCase().replace(/\./g, '');
+  const s = String(v ?? '').trim().toLowerCase().replace(/\./g, '');
+  if (!s) return stages[0].id;
   const aliases = {
     'not interested': 'not-interested',
     'not int': 'not-interested',
@@ -60,7 +66,49 @@ function normalizeStage(v, stages) {
     const name = st.name.toLowerCase().replace(/\./g, '');
     return id === s || name === s || id === alias;
   });
-  return match ? match.id : stages[0].id;
+  return match ? match.id : null;
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+// UTC midnight for a real calendar date between 1990 and 2100, else null.
+function utcDate(y, m, d) {
+  const year = y < 100 ? 2000 + y : y;
+  if (year < 1990 || year > 2100) return null;
+  const date = new Date(Date.UTC(year, m - 1, d));
+  return date.getUTCMonth() === m - 1 && date.getUTCDate() === d ? date : null;
+}
+
+const monthNumber = (name) => {
+  const s = name.toLowerCase();
+  const i = MONTHS.findIndex((m) => s.startsWith(m));
+  return i + 1;
+};
+
+// Reads an Excel serial number or a written date. Slashed dates are day first.
+// Returns null for a blank cell and undefined when the value cannot be read.
+function parseDate(v, date1904) {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  if (typeof v === 'number' || /^\d{5}(\.\d+)?$/.test(s)) {
+    const p = XLSX.SSF.parse_date_code(Number(s), { date1904 });
+    if (!p || !utcDate(p.y, p.m, p.d)) return undefined;
+    return new Date(Date.UTC(p.y, p.m - 1, p.d, p.H, p.M, p.S));
+  }
+  if (/^\d{4}-\d{1,2}-\d{1,2}[T ]\d/.test(s)) {
+    const d = new Date(s);
+    const y = d.getUTCFullYear();
+    return y >= 1990 && y <= 2100 ? d : undefined;
+  }
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return utcDate(+m[1], +m[2], +m[3]) || undefined;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})$/);
+  if (m) return utcDate(+m[3], +m[2], +m[1]) || undefined;
+  m = s.match(/^(\d{1,2})(?:st|nd|rd|th)?[-\s,]+([a-z]{3,9})\.?[-\s,]+(\d{4}|\d{2})$/i);
+  if (m) return utcDate(+m[3], monthNumber(m[2]), +m[1]) || undefined;
+  m = s.match(/^([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?[\s,]+(\d{4})$/i);
+  if (m) return utcDate(+m[3], monthNumber(m[1]), +m[2]) || undefined;
+  return undefined;
 }
 
 const IMPORT_HEADERS = [
@@ -111,10 +159,13 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
   if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name "file")' });
 
   let rows;
+  let date1904 = false;
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    // raw keeps CSV text as typed, so SheetJS does not read dd/mm dates as mm/dd.
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer', raw: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: '' });
+    date1904 = !!(wb.Workbook && wb.Workbook.WBProps && wb.Workbook.WBProps.date1904);
+    rows = XLSX.utils.sheet_to_json(sheet, { header: 'A', blankrows: false, defval: '' });
   } catch (e) {
     return res.status(400).json({ error: 'Could not parse the file. Please upload a valid .xlsx/.csv.' });
   }
@@ -122,9 +173,9 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
     return res.status(400).json({ error: 'The file has no data rows below the header.' });
   }
 
-  const headerMap = buildHeaderMap(rows[0]);
+  const { map: headerMap, ignored: ignoredColumns } = buildHeaderMap(rows[0]);
   if (headerMap.schoolName === undefined) {
-    return res.status(400).json({ error: 'Could not find a "School Name" column in the header row.' });
+    return res.status(400).json({ error: 'Could not find a "School Name" column in the header row.', ignoredColumns });
   }
 
   const defaultFunnelId = req.body.funnelId ? parseInt(req.body.funnelId, 10) : null;
@@ -148,13 +199,15 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
 
   const toCreate = [];
   const errors = [];
+  const warnings = [];
   const get = (row, field) => (headerMap[field] !== undefined ? row[headerMap[field]] : '');
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
+    const rowNumber = row.__rowNum__ + 1;
     const schoolName = String(get(row, 'schoolName') || '').trim();
     if (!schoolName) {
-      errors.push({ row: i + 1, error: 'Missing school name' });
+      errors.push({ row: rowNumber, error: 'Missing school name' });
       continue;
     }
     const strengthRaw = get(row, 'studentStrength');
@@ -163,16 +216,31 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
       const n = parseInt(String(strengthRaw).replace(/[^0-9]/g, ''), 10);
       studentStrength = Number.isNaN(n) ? null : n;
     }
-    const stage = normalizeStage(get(row, 'stage'), cfg.stages);
+    const stageRaw = get(row, 'stage');
+    const stage = normalizeStage(stageRaw, cfg.stages);
+    if (!stage) {
+      const value = String(stageRaw).trim();
+      errors.push({
+        row: rowNumber,
+        column: 'Stage',
+        value,
+        error: `Stage "${value}" is not recognised. Use one of: ${cfg.stages.map((s) => s.name).join(', ')}.`,
+      });
+      continue;
+    }
     const toNum = (v) => {
       if (v === '' || v === null || v === undefined) return null;
       const n = parseFloat(String(v).replace(/[^0-9.]/g, ''));
       return Number.isNaN(n) ? null : n;
     };
-    const toDate = (v) => {
-      if (!v) return null;
-      const d = new Date(v);
-      return Number.isNaN(d.getTime()) ? null : d;
+    // Unreadable dates are left out of the lead and reported.
+    const toDate = (field, column, effect) => {
+      const v = get(row, field);
+      const d = parseDate(v, date1904);
+      if (d !== undefined) return d;
+      const value = String(v).trim();
+      warnings.push({ row: rowNumber, column, value, warning: `${column} "${value}" is not a date we can read. ${effect}` });
+      return null;
     };
     const lead = {
       schoolName,
@@ -188,21 +256,21 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
       totalContractValue: toNum(get(row, 'totalContractValue')),
       pspmRate: toNum(get(row, 'pspmRate')),
       cac: toNum(get(row, 'cac')),
-      reminderAt: toDate(get(row, 'reminderAt')),
+      reminderAt: toDate('reminderAt', 'Reminder', 'No reminder was set.'),
       funnelId: defaultFunnelId,
       ownerId: defaultOwnerId,
     };
     if (useCalendarDate) {
       lead.leadDate = calendarDate;
     } else {
-      const ld = toDate(get(row, 'leadDate'));
+      const ld = toDate('leadDate', 'Lead Date', 'The import date was used instead.');
       if (ld) lead.leadDate = ld;
     }
     toCreate.push(lead);
   }
 
   if (toCreate.length === 0) {
-    return res.status(400).json({ error: 'No valid rows found', errors });
+    return res.status(400).json({ error: 'No valid rows found', errors, warnings, ignoredColumns });
   }
 
   // Create leads + their initial stage-history + an import batch record in one transaction.
@@ -222,7 +290,7 @@ router.post('/', requireRole('SUPER_ADMIN', 'MANAGER'), upload.single('file'), a
     return toCreate.length;
   });
 
-  res.status(201).json({ created, skipped: errors.length, errors });
+  res.status(201).json({ created, skipped: errors.length, errors, warnings, ignoredColumns });
 });
 
 module.exports = router;
