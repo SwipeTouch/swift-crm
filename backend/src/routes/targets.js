@@ -1,6 +1,8 @@
 const express = require('express');
 const prisma = require('../db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { buildLeadScope } = require('../lib/leadAccess');
+const { getConfig } = require('../lib/config');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -48,54 +50,165 @@ router.put('/', requireRole('SUPER_ADMIN'), async (req, res) => {
   res.json({ fy, targets: saved });
 });
 
-// GET /api/targets/analysis?fy= — achievement vs target overall and per region/funnel/sales person.
-router.get('/analysis', requireRole('SUPER_ADMIN'), async (req, res) => {
+// Funnels granted to this user. Super Admin is unscoped (null).
+async function funnelIdsFor(req) {
+  if (req.user.role === 'SUPER_ADMIN') return null;
+  const u = await prisma.user.findFirst({
+    where: { id: req.user.id, tenantId: req.tenantId },
+    select: { funnelAccess: { select: { id: true } } },
+  });
+  return u ? u.funnelAccess.map((f) => f.id) : [];
+}
+
+function bump(map, key, patch) {
+  const row = map.get(key) || { leads: 0, tcv: 0, closedCount: 0, achieved: 0 };
+  row.leads += patch.leads || 0;
+  row.tcv += patch.tcv || 0;
+  row.closedCount += patch.closedCount || 0;
+  row.achieved += patch.achieved || 0;
+  map.set(key, row);
+}
+
+// GET /api/targets/analysis?fy= — pipeline and FY closures, scoped to the caller.
+// Super Admin also receives per-person rows and every target. Other roles see
+// only the leads they can already open, and only the target that applies to them.
+router.get('/analysis', async (req, res) => {
   const fy = req.query.fy || currentFy();
   const { start, end } = fyBounds(fy);
+  const funnelIds = await funnelIdsFor(req);
+  const scope = { AND: [{ tenantId: req.tenantId }, buildLeadScope(req.user, funnelIds)] };
+  const closedWhere = { AND: [...scope.AND, { stage: CLOSURE_STAGE, closedAt: { gte: start, lte: end } }] };
+  const isAdmin = req.user.role === 'SUPER_ADMIN';
+  const seesOrganisation = isAdmin || (req.user.role === 'MANAGER' && !req.user.region && !(funnelIds && funnelIds.length));
 
-  const closed = await prisma.lead.findMany({
-    where: { tenantId: req.tenantId, stage: CLOSURE_STAGE, closedAt: { gte: start, lte: end } },
-    select: { totalContractValue: true, region: true, funnelId: true, ownerId: true },
-  });
-  const targets = await prisma.target.findMany({ where: { tenantId: req.tenantId, fy } });
+  const [cfg, targets, pipeline, closedOverall, byStage, pipeRegion, pipeFunnel, closedRegion, closedFunnel, closedUser] = await Promise.all([
+    getConfig(req.tenantId),
+    prisma.target.findMany({ where: { tenantId: req.tenantId, fy } }),
+    prisma.lead.aggregate({ where: scope, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.aggregate({ where: closedWhere, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.groupBy({ by: ['stage'], where: scope, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.groupBy({ by: ['region'], where: scope, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.groupBy({ by: ['funnelId'], where: scope, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.groupBy({ by: ['region'], where: closedWhere, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    prisma.lead.groupBy({ by: ['funnelId'], where: closedWhere, _count: { _all: true }, _sum: { totalContractValue: true } }),
+    isAdmin
+      ? prisma.lead.groupBy({ by: ['ownerId'], where: closedWhere, _count: { _all: true }, _sum: { totalContractValue: true } })
+      : Promise.resolve([]),
+  ]);
+
   const tget = (dim, key) => {
     const t = targets.find((x) => x.dimension === dim && x.refKey === String(key));
     return t ? t.amount : 0;
   };
 
-  let overallAchieved = 0;
-  const region = {}; const funnel = {}; const user = {};
-  for (const l of closed) {
-    const v = l.totalContractValue || 0;
-    overallAchieved += v;
-    if (l.region) region[l.region] = (region[l.region] || 0) + v;
-    if (l.funnelId != null) funnel[l.funnelId] = (funnel[l.funnelId] || 0) + v;
-    if (l.ownerId != null) user[l.ownerId] = (user[l.ownerId] || 0) + v;
+  const regionMap = new Map();
+  for (const row of pipeRegion) bump(regionMap, row.region || '', { leads: row._count._all, tcv: row._sum.totalContractValue || 0 });
+  for (const row of closedRegion) bump(regionMap, row.region || '', { closedCount: row._count._all, achieved: row._sum.totalContractValue || 0 });
+  const funnelMap = new Map();
+  for (const row of pipeFunnel) bump(funnelMap, row.funnelId == null ? '' : String(row.funnelId), { leads: row._count._all, tcv: row._sum.totalContractValue || 0 });
+  for (const row of closedFunnel) bump(funnelMap, row.funnelId == null ? '' : String(row.funnelId), { closedCount: row._count._all, achieved: row._sum.totalContractValue || 0 });
+
+  if (seesOrganisation) {
+    targets.filter((t) => t.dimension === 'REGION' && t.refKey).forEach((t) => bump(regionMap, t.refKey, {}));
+    targets.filter((t) => t.dimension === 'FUNNEL' && t.refKey).forEach((t) => bump(funnelMap, t.refKey, {}));
   }
 
   const funnels = await prisma.funnel.findMany({ where: { tenantId: req.tenantId }, select: { id: true, name: true } });
-  const users = await prisma.user.findMany({ where: { tenantId: req.tenantId }, select: { id: true, name: true } });
-  const fname = Object.fromEntries(funnels.map((f) => [f.id, f.name]));
-  const uname = Object.fromEntries(users.map((u) => [u.id, u.name]));
+  const fname = Object.fromEntries(funnels.map((f) => [String(f.id), f.name]));
+  const sortByAch = (a, b) => (b.achieved - a.achieved) || (b.leads - a.leads);
 
-  const union = (achievedMap, dim) => {
-    const keys = new Set([...Object.keys(achievedMap), ...targets.filter((t) => t.dimension === dim).map((t) => t.refKey)]);
-    return Array.from(keys).filter((k) => k !== '');
-  };
-  const byRegion = union(region, 'REGION').map((k) => ({ key: k, label: k, achieved: region[k] || 0, target: tget('REGION', k) }));
-  const byFunnel = union(funnel, 'FUNNEL').map((k) => ({ key: k, label: fname[k] || `Funnel ${k}`, achieved: funnel[k] || 0, target: tget('FUNNEL', k) }));
-  const byUser = union(user, 'USER').map((k) => ({ key: k, label: uname[k] || `User ${k}`, achieved: user[k] || 0, target: tget('USER', k) }));
-  const sortByAch = (a, b) => b.achieved - a.achieved;
+  const regionTarget = (key) => (seesOrganisation || (req.user.region && key === req.user.region) ? tget('REGION', key) : 0);
+  const funnelTarget = (key) => (seesOrganisation ? tget('FUNNEL', key) : 0);
+
+  const byRegion = Array.from(regionMap.entries()).map(([key, row]) => ({
+    key: key || 'none',
+    label: key || 'No region',
+    leads: row.leads,
+    closedCount: row.closedCount,
+    achieved: row.achieved,
+    pipelineValue: row.tcv,
+    target: regionTarget(key),
+  })).sort(sortByAch);
+
+  const byFunnel = Array.from(funnelMap.entries()).map(([key, row]) => ({
+    key: key || 'none',
+    label: key ? (fname[key] || `Funnel ${key}`) : 'Unassigned',
+    leads: row.leads,
+    closedCount: row.closedCount,
+    achieved: row.achieved,
+    pipelineValue: row.tcv,
+    target: funnelTarget(key),
+  })).sort(sortByAch);
+
+  let byUser = [];
+  if (isAdmin) {
+    const userMap = new Map();
+    for (const row of closedUser) {
+      const key = row.ownerId == null ? '' : String(row.ownerId);
+      bump(userMap, key, { closedCount: row._count._all, achieved: row._sum.totalContractValue || 0, leads: row._count._all });
+    }
+    targets.filter((t) => t.dimension === 'USER' && t.refKey).forEach((t) => bump(userMap, t.refKey, {}));
+    const ids = Array.from(userMap.keys()).map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id));
+    const users = ids.length
+      ? await prisma.user.findMany({ where: { tenantId: req.tenantId, id: { in: ids } }, select: { id: true, name: true } })
+      : [];
+    const uname = Object.fromEntries(users.map((u) => [String(u.id), u.name]));
+    byUser = Array.from(userMap.entries()).map(([key, row]) => ({
+      key: key || 'none',
+      label: key ? (uname[key] || `User ${key}`) : 'Unassigned',
+      leads: row.leads,
+      closedCount: row.closedCount,
+      achieved: row.achieved,
+      pipelineValue: row.tcv,
+      target: tget('USER', key),
+    })).sort(sortByAch);
+  }
+
+  const stageOrder = (cfg.stages || []).map((s) => s.id);
+  const stageMap = new Map(byStage.map((row) => [row.stage, row]));
+  const stageKeys = [...stageOrder, ...byStage.map((row) => row.stage).filter((id) => !stageOrder.includes(id))];
+  const stages = stageKeys.map((key) => {
+    const row = stageMap.get(key);
+    return {
+      key,
+      count: row ? row._count._all : 0,
+      tcv: row ? (row._sum.totalContractValue || 0) : 0,
+    };
+  });
+
+  let overallTarget = 0;
+  let scopeKind = 'organisation';
+  if (isAdmin || seesOrganisation) {
+    overallTarget = tget('OVERALL', '');
+    scopeKind = 'organisation';
+  } else if (funnelIds && funnelIds.length) {
+    scopeKind = 'funnels';
+    overallTarget = req.user.role === 'SALES_REP' ? tget('USER', req.user.id) : 0;
+  } else if (req.user.role === 'MANAGER' && req.user.region) {
+    scopeKind = 'region';
+    overallTarget = tget('REGION', req.user.region);
+  } else {
+    scopeKind = 'own';
+    overallTarget = tget('USER', req.user.id);
+  }
 
   res.json({
     fy,
     currentFy: currentFy(),
     fyStart: start,
     fyEnd: end,
-    overall: { target: tget('OVERALL', ''), achieved: overallAchieved },
-    byRegion: byRegion.sort(sortByAch),
-    byFunnel: byFunnel.sort(sortByAch),
-    byUser: byUser.sort(sortByAch),
+    scope: scopeKind,
+    overall: {
+      target: overallTarget,
+      achieved: closedOverall._sum.totalContractValue || 0,
+      closedCount: closedOverall._count._all || 0,
+      pipelineCount: pipeline._count._all || 0,
+      pipelineValue: pipeline._sum.totalContractValue || 0,
+    },
+    byStage: stages,
+    byRegion,
+    byFunnel,
+    byUser,
   });
 });
 
