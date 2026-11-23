@@ -46,13 +46,8 @@ export default function Funnels() {
 
   const remove = async (f) => {
     try {
-      const r = await api.delete(`/funnels/${f.id}`);
-      const closed = r.data.closureCount || 0;
-      message.success(
-        closed
-          ? `${f.name} was removed. ${closed} closed lead${closed === 1 ? '' : 's'} now sit in ${r.data.movedTo}, with the other leads from this funnel.`
-          : `${f.name} was removed. Its leads now sit in ${r.data.movedTo}.`
-      );
+      await api.delete(`/funnels/${f.id}`);
+      message.success(`${f.name} was removed.`);
       load();
     } catch (e) {
       message.error(e.response?.data?.error || 'Delete failed');
@@ -100,18 +95,27 @@ export default function Funnels() {
               <Button size="small" danger disabled={!r.leadCount}>Clear leads</Button>
             </Popconfirm>
           )}
-          {isAdmin(user) && !r.isMisc && (
-            <Popconfirm
-              title={`Delete ${r.name}?`}
-              description={r.closureCount
-                ? `${r.closureCount} closed lead${r.closureCount === 1 ? '' : 's'} cannot be left without a funnel. They move to Miscellaneous, along with the other leads. This funnel name is then removed.`
-                : 'Its leads move to Miscellaneous so they stay filed. This funnel name is then removed.'}
-              onConfirm={() => remove(r)}
-              okText="Delete funnel"
-              okButtonProps={{ danger: true }}
-            >
-              <Button size="small" danger>Delete</Button>
-            </Popconfirm>
+          {isAdmin(user) && (
+            r.leadCount > 0 ? (
+              <Popconfirm
+                title={`Cannot delete ${r.name}`}
+                description={`This funnel still has ${r.leadCount} lead${r.leadCount === 1 ? '' : 's'}. Clear every lead first. A funnel cannot be deleted while it has leads.`}
+                okText="OK"
+                showCancel={false}
+              >
+                <Button size="small" danger>Delete</Button>
+              </Popconfirm>
+            ) : (
+              <Popconfirm
+                title={`Delete ${r.name}?`}
+                description="This funnel has no leads. The funnel name will be removed."
+                onConfirm={() => remove(r)}
+                okText="Delete funnel"
+                okButtonProps={{ danger: true }}
+              >
+                <Button size="small" danger>Delete</Button>
+              </Popconfirm>
+            )
           )}
         </Space>
       ),

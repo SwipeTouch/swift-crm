@@ -287,6 +287,10 @@ const LEAD_SORTS = {
   ageing: (dir) => ({ leadDate: dir === 'asc' ? 'desc' : 'asc' }),
   reminder: (dir) => ({ reminderAt: dir }),
   region: (dir) => ({ region: dir }),
+  location: (dir) => ({ location: dir }),
+  pspmRate: (dir) => ({ pspmRate: dir }),
+  leadDate: (dir) => ({ leadDate: dir }),
+  closedAt: (dir) => ({ closedAt: dir }),
   contact: (dir) => ({ contactName: dir }),
   funnel: (dir) => ({ funnel: { name: dir } }),
   owner: (dir) => ({ owner: { name: dir } }),
@@ -375,6 +379,7 @@ router.get('/export', async (req, res) => {
     'PSPM Rate': l.pspmRate ?? '',
     'CAC': l.cac ?? '',
     'Lead Date': l.leadDate ? l.leadDate.toISOString().slice(0, 10) : '',
+    'Closed Date': l.closedAt ? l.closedAt.toISOString().slice(0, 10) : '',
     'Reminder': l.reminderAt ? l.reminderAt.toISOString().slice(0, 10) : '',
     'Source': l.source || '',
   }));

@@ -2,6 +2,12 @@ const prisma = require('../db');
 
 // Column keys the leads pool can show (must match the frontend's list).
 const ALL_COLUMN_KEYS = [
+  'board', 'studentStrength', 'totalContractValue', 'pspmRate', 'cac', 'ageing',
+  'leadDate', 'closedAt', 'reminder', 'location', 'contact', 'funnel', 'owner', 'stage',
+];
+
+// Tenants created before Location / PSPM / dates were columns stored this exact set.
+const PREVIOUS_REP_COLUMNS = [
   'board', 'studentStrength', 'totalContractValue', 'cac', 'ageing',
   'reminder', 'region', 'contact', 'funnel', 'owner', 'stage',
 ];
@@ -73,7 +79,19 @@ async function getConfig(tenantId) {
       data: { tenantId, stages: DEFAULT_STAGES, repColumns: ALL_COLUMN_KEYS },
     });
   }
+  if (sameColumnSet(cfg.repColumns, PREVIOUS_REP_COLUMNS)) {
+    cfg = await prisma.appConfig.update({
+      where: { tenantId },
+      data: { repColumns: ALL_COLUMN_KEYS },
+    });
+  }
   return cfg;
+}
+
+function sameColumnSet(stored, expected) {
+  if (!Array.isArray(stored) || stored.length !== expected.length) return false;
+  const have = new Set(stored);
+  return expected.every((k) => have.has(k));
 }
 
 module.exports = { getConfig, DEFAULT_STAGES, ALL_COLUMN_KEYS, DEFAULT_PO_TEMPLATE, effectivePoTemplate };

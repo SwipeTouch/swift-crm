@@ -24,10 +24,13 @@ const TOGGLEABLE_COLS = [
   { key: 'board', label: 'Board' },
   { key: 'studentStrength', label: 'Students' },
   { key: 'totalContractValue', label: 'TCV' },
+  { key: 'pspmRate', label: 'PSPM Rate' },
   { key: 'cac', label: 'CAC' },
   { key: 'ageing', label: 'Ageing' },
+  { key: 'leadDate', label: 'Lead date' },
+  { key: 'closedAt', label: 'Closed date' },
   { key: 'reminder', label: 'Reminder' },
-  { key: 'region', label: 'Region' },
+  { key: 'location', label: 'Location' },
   { key: 'contact', label: 'Contact' },
   { key: 'funnel', label: 'Funnel' },
   { key: 'owner', label: 'Owner' },
@@ -35,6 +38,29 @@ const TOGGLEABLE_COLS = [
 ];
 const ALL_COL_KEYS = TOGGLEABLE_COLS.map((c) => c.key);
 const COLS_STORAGE_KEY = 'crm_visible_cols';
+const COLS_MIGRATED_KEY = 'crm_visible_cols_v3';
+const ADDED_COL_KEYS = ['location', 'pspmRate', 'leadDate', 'closedAt'];
+
+// Saved column choices predate Location, PSPM Rate, Lead date, and Closed date.
+// The new list is written before the flag so a second initializer call still sees it.
+function loadVisibleCols() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY));
+    if (!Array.isArray(saved)) return ALL_COL_KEYS;
+    if (localStorage.getItem(COLS_MIGRATED_KEY) === '1') {
+      return saved.filter((k) => ALL_COL_KEYS.includes(k));
+    }
+    const next = saved.filter((k) => k !== 'region' && ALL_COL_KEYS.includes(k));
+    ADDED_COL_KEYS.forEach((k) => {
+      if (!next.includes(k)) next.push(k);
+    });
+    localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(COLS_MIGRATED_KEY, '1');
+    return next;
+  } catch {
+    return ALL_COL_KEYS;
+  }
+}
 const ACTIONS_COLLAPSED_KEY = 'crm_actions_collapsed';
 
 export default function LeadsPool() {
@@ -77,13 +103,7 @@ export default function LeadsPool() {
   const [closingLead, setClosingLead] = useState(null);
 
   // Which columns are visible — remembered per browser.
-  const [visibleCols, setVisibleCols] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(COLS_STORAGE_KEY));
-      if (Array.isArray(saved)) return saved;
-    } catch { /* ignore */ }
-    return ALL_COL_KEYS;
-  });
+  const [visibleCols, setVisibleCols] = useState(loadVisibleCols);
   useEffect(() => {
     try { localStorage.setItem(COLS_STORAGE_KEY, JSON.stringify(visibleCols)); } catch { /* ignore */ }
   }, [visibleCols]);
@@ -308,6 +328,7 @@ export default function LeadsPool() {
     { title: 'Board', dataIndex: 'board', key: 'board', ...sortable('board'), render: (v) => v || '—' },
     { title: 'Students', dataIndex: 'studentStrength', key: 'studentStrength', ...sortable('studentStrength'), render: (v) => v ?? '—' },
     { title: 'TCV', dataIndex: 'totalContractValue', key: 'totalContractValue', align: 'right', ...sortable('totalContractValue'), render: (v) => inr(v) },
+    { title: 'PSPM Rate', dataIndex: 'pspmRate', key: 'pspmRate', align: 'right', ...sortable('pspmRate'), render: (v) => inr(v) },
     { title: 'CAC', dataIndex: 'cac', key: 'cac', align: 'right', ...sortable('cac'), render: (v) => inr(v) },
     {
       title: 'Ageing', key: 'ageing', align: 'right', ...sortable('ageing'),
@@ -321,6 +342,14 @@ export default function LeadsPool() {
       },
     },
     {
+      title: 'Lead date', dataIndex: 'leadDate', key: 'leadDate', ...sortable('leadDate'),
+      render: (v) => (v ? dayjs(v).format('DD MMM YYYY') : '—'),
+    },
+    {
+      title: 'Closed date', dataIndex: 'closedAt', key: 'closedAt', ...sortable('closedAt'),
+      render: (v) => (v ? dayjs(v).format('DD MMM YYYY') : '—'),
+    },
+    {
       title: 'Reminder', key: 'reminder', ...sortable('reminder'),
       render: (_, r) =>
         r.reminderAt ? (
@@ -329,7 +358,7 @@ export default function LeadsPool() {
           </Tag>
         ) : '—',
     },
-    { title: 'Region', dataIndex: 'region', key: 'region', ...sortable('region'), render: (v) => v || '—' },
+    { title: 'Location', dataIndex: 'location', key: 'location', ...sortable('location'), render: (v) => v || '—' },
     {
       title: 'Contact', key: 'contact', ...sortable('contact'),
       render: (_, r) => r.contactName ? `${r.contactName}${r.contactType ? ` (${CONTACT_LABEL[r.contactType]})` : ''}` : '—',
@@ -564,7 +593,7 @@ export default function LeadsPool() {
                   </Button>
                   <div style={{ marginTop: 6 }}>
                     <Tag color={stageColor(r.stage)}>{stageName(r.stage)}</Tag>
-                    {r.region || '—'}
+                    {r.location || '—'}
                     {ageingDays(r.leadDate) != null ? ` · ${ageingDays(r.leadDate)}d` : ''}
                   </div>
                 </div>
